@@ -1,0 +1,4 @@
+# PocketTmux.xcodeproj is generated from Project.yml (xcodegen).
+PocketTmux.xcodeproj
+build/
+*.xcuserdatad

@@ -1,0 +1,50 @@
+name: 🐞 Bug report
+description: Something doesn't work the way it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A concise summary of the bug
+      placeholder: "I expected X but got Y"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. With this config…
+        2. When I…
+        3. Instead of…
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        - Phone: iPhone 15, iOS 26.1
+        - App version: 0.2.1
+        - Mac: MacBook Pro, macOS 26.4
+        - tmux: 3.7c
+        - Network: home Wi-Fi, same subnet
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - App (iOS)
+        - Agent (macOS)
+        - Transport / protocol
+        - tmux bridge
+        - CI / release
+        - Docs
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / output
+      render: sh

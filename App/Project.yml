@@ -1,0 +1,36 @@
+# PocketTmux — XcodeGen project spec (source of truth for the .xcodeproj).
+# Regenerate with: xcodegen generate   (see CONTRIBUTING.md)
+name: PocketTmux
+options:
+  bundleIdPrefix: com.waylake
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  PocketTmux:
+    type: application
+    platform: iOS
+    sources:
+      - PocketTmux
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.waylake.pockettmux
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+  PocketTmuxTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - PocketTmuxTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.waylake.pockettmux.tests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: PocketTmux

@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Archive, package & publish
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: App
+        run: xcodegen generate
+
+      - name: Archive (ad-hoc)
+        id: archive
+        working-directory: App
+        continue-on-error: true
+        run: |
+          xcodebuild \
+            -project PocketTmux.xcodeproj \
+            -scheme PocketTmux \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/PocketTmux.xcarchive \
+            archive
+
+      - name: Export .ipa
+        id: export
+        working-directory: App
+        if: steps.archive.outcome == 'success'
+        continue-on-error: true
+        run: |
+          cat > ExportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>ad-hoc</string>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath build/PocketTmux.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build
+
+      - name: List artifacts
+        working-directory: App
+        run: ls -lh build/*.ipa 2>/dev/null || echo "(no .ipa — check the archive/export steps)"
+
+      - name: Upload .ipa artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: PocketTmux-${{ github.ref_name }}
+          path: App/build/*.ipa
+          if-no-files-found: warn
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Use this tag's changelog section as the release notes (fall back to a header).
+          NOTES_FILE=$(mktemp)
+          awk -v tag="${GITHUB_REF_NAME}" '
+            $0 ~ "^## \\["tag"]" { in_block = 1; print; next }
+            in_block && $0 ~ "^## \\[" { in_block = 0 }
+            in_block { print }
+          ' CHANGELOG.md > "$NOTES_FILE" || true
+          if [ ! -s "$NOTES_FILE" ]; then
+            printf 'Release %s\n' "${GITHUB_REF_NAME}" > "$NOTES_FILE"
+          fi
+
+          # Attach the .ipa if the archive/export produced one.
+          IPA_ARGS=()
+          if ls App/build/*.ipa >/dev/null 2>&1; then
+            for f in App/build/*.ipa; do IPA_ARGS+=("$f"); done
+          fi
+
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "PocketTmux ${GITHUB_REF_NAME#v}" \
+            --notes-file "$NOTES_FILE" \
+            "${IPA_ARGS[@]}" || true

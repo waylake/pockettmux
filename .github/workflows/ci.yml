@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: SwiftLint
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SwiftLint
+        run: brew install swiftlint
+      - name: Lint
+        run: swiftlint lint --strict --reporter github-native
+
+  build-and-test:
+    name: Build & Test (iOS Simulator)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: App
+        run: xcodegen generate
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -iE 'iphonesimulator' | head -n 3
+      - name: Build & run tests
+        working-directory: App
+        run: |
+          # Pick whatever iPhone simulator the runner actually has.
+          SIM=$(xcrun simctl list devices available | grep -i 'iphone' | head -1 | sed -E 's/[[:space:]]*\(.*//; s/^ *//')
+          echo "Using simulator: $SIM"
+          xcodebuild \
+            -project PocketTmux.xcodeproj \
+            -scheme PocketTmux \
+            -destination "platform=iOS Simulator,name=$SIM" \
+            -resultBundlePath build/test/PocketTmux.xcresult \
+            test
+      - name: Upload test results (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: App/build/test/PocketTmux.xcresult

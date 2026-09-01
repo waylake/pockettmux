@@ -1,0 +1,6 @@
+# PocketTmux SwiftLint — low noise, high style.
+# CI runs `swiftlint lint --strict`; keep new warnings at zero.
+excluded:
+  - App/PocketTmux.xcodeproj
+  - build
+  - DerivedData

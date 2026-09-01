@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Architecture & design questions
+    url: https://github.com/waylake/pockettmux/tree/main/docs
+    about: Read ARCHITECTURE.md / TECH_STACK.md before asking
