@@ -18,7 +18,7 @@ jobs:
       - name: Install SwiftLint
         run: brew install swiftlint
       - name: Lint
-        run: swiftlint lint --strict --reporter github-native
+        run: swiftlint lint --strict
 
   build-and-test:
     name: Build & Test (iOS Simulator)

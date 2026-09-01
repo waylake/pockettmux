@@ -10,9 +10,11 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  # 'releases' is NOT a valid fine-grained permission scope (that's a
+  # classic OAuth scope). In the fine-grained model, creating a release
+  # is a 'contents' write — so the GITHUB_TOKEN needs contents:write.
+  contents: write
   actions: read
-  releases: write
 
 jobs:
   release:
