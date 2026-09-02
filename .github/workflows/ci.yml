@@ -9,14 +9,20 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Every xcodebuild needs -skipPackagePluginValidation: SwiftTerm's build-tool
-# plugin fails its "Validate plug-in" step on Xcode 26 before compiling
-# anything (see CLAUDE.md). It is safe: the plugin only emits build-info constants.
+# Two runner facts this file depends on:
+#
+# 1. macos-26 (arm64) is the only image that ships Xcode 26.x. The app needs it:
+#    `final class …: NSObject, @MainActor TerminalViewDelegate` (isolated
+#    conformances) and Sendable CIContext are Swift 6.2 / SDK 26 features, so
+#    Xcode 16.4 on macos-15 fails with "unknown attribute 'MainActor'".
+# 2. Every xcodebuild needs -skipPackagePluginValidation: SwiftTerm's build-tool
+#    plugin fails its "Validate plug-in" step on Xcode 26 before compiling
+#    anything (see CLAUDE.md). Safe: the plugin only emits build-info constants.
 
 jobs:
   lint:
     name: SwiftLint
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Install SwiftLint
@@ -26,9 +32,11 @@ jobs:
 
   package:
     name: PocketTmuxKit (swift test)
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: .github/scripts/select-xcode.sh
       - name: Show toolchain
         run: swift --version
       - name: Test package
@@ -36,9 +44,11 @@ jobs:
 
   ios:
     name: iPhone app (build & test, simulator)
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: .github/scripts/select-xcode.sh
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project
@@ -71,9 +81,11 @@ jobs:
 
   mac:
     name: Mac app + pockettmuxd (build)
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: .github/scripts/select-xcode.sh
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project

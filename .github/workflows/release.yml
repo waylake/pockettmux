@@ -16,8 +16,11 @@ permissions:
   contents: write
   actions: read
 
-# Every xcodebuild needs -skipPackagePluginValidation (SwiftTerm's build-tool
-# plugin fails validation on Xcode 26 before anything compiles; see CLAUDE.md).
+# Runner: macos-26 is the only image with Xcode 26.x, which the app requires
+# (isolated `@MainActor` conformances, Sendable CIContext — Xcode 16.4 on
+# macos-15 fails with "unknown attribute 'MainActor'"). Every xcodebuild needs
+# -skipPackagePluginValidation (SwiftTerm's build-tool plugin fails validation
+# on Xcode 26 before anything compiles; see CLAUDE.md).
 #
 # Signing status:
 #   iOS  — the ad-hoc archive/export only succeeds when the runner has a
@@ -31,9 +34,12 @@ permissions:
 jobs:
   release:
     name: Archive, package & publish
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: .github/scripts/select-xcode.sh
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -132,10 +138,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Use this tag's changelog section as the release notes (fall back to a header).
+          # Use this tag's changelog section as the release notes. CHANGELOG
+          # headings carry no `v` prefix (`## [1.0.0] - …`), the tag does.
           NOTES_FILE=$(mktemp)
-          awk -v tag="${GITHUB_REF_NAME}" '
-            $0 ~ "^## \\["tag"]" { in_block = 1; print; next }
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v tag="$VERSION" '
+            $0 ~ "^## \\["tag"\\]" { in_block = 1; print; next }
             in_block && $0 ~ "^## \\[" { in_block = 0 }
             in_block { print }
           ' CHANGELOG.md > "$NOTES_FILE" || true
@@ -154,8 +162,21 @@ jobs:
           for f in App/build/*.ipa App/build/*.zip App/build/*.tar.gz; do
             [ -f "$f" ] && ASSETS+=("$f")
           done
+          echo "attaching ${#ASSETS[@]} asset(s)"
 
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "PocketTmux ${GITHUB_REF_NAME#v}" \
-            --notes-file "$NOTES_FILE" \
-            "${ASSETS[@]}" || true
+          # Idempotent: a re-run of the same tag refreshes notes and assets
+          # instead of failing on "release already exists". Failures are NOT
+          # swallowed — a release job that publishes nothing must go red.
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "PocketTmux ${GITHUB_REF_NAME#v}" \
+              --notes-file "$NOTES_FILE"
+            if [ ${#ASSETS[@]} -gt 0 ]; then
+              gh release upload "${GITHUB_REF_NAME}" "${ASSETS[@]}" --clobber
+            fi
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "PocketTmux ${GITHUB_REF_NAME#v}" \
+              --notes-file "$NOTES_FILE" \
+              "${ASSETS[@]}"
+          fi

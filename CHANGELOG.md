@@ -35,6 +35,8 @@ PocketTmux is now **two apps** built from one repo and one shared Swift package.
 - Sending `error{auth}` on a bad token was racing the socket close; the frame is now flushed before the connection is cancelled.
 - `pockettmuxd` crashed on SIGTERM (`exit()` from a raw signal handler); signals are handled through dispatch sources.
 - Tapping a Mac on the Macs screen or a session on the Sessions screen did nothing: `.onTapGesture` on a `List` row never fires next to `swipeActions`/`contextMenu` on iOS 26, so both rows are plain `Button`s now.
+- CI and Release ran on `macos-15` (Xcode 16.4) and could not compile the apps at all: the isolated `@MainActor TerminalViewDelegate` conformance failed with "unknown attribute 'MainActor'" and `CIContext` was still non-`Sendable`. Both workflows now run on `macos-26` and pin Xcode 26.2 through `.github/scripts/select-xcode.sh`.
+- The Release job looked for a `## [vX.Y.Z]` changelog heading while the file uses `## [X.Y.Z]`, so every release shipped with placeholder notes; publishing is also idempotent now (a re-run refreshes notes/assets) and no longer swallows failures.
 
 ## [0.1.0] - 2026-09-01
 

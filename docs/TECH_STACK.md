@@ -65,7 +65,7 @@
 | Package tests | `swift test --package-path App/PocketTmuxKit` | Xcode 26.2 | Protocol, parsers, primer, encoder — no simulator needed |
 | App builds | `xcodebuild` (+ `-skipPackagePluginValidation`) | Xcode 26.2 | iOS simulator build+test; Mac app + daemon build |
 | E2E | `scripts/check-attach-prime.py` (raw WebSocket client, stdlib Python) | — | Attach/prime/windows/input/paste/auth against a live agent and real tmux |
-| CI | GitHub Actions on `macos-15` | — | lint · package · ios · mac jobs |
+| CI | GitHub Actions on `macos-26` (arm64) | — | lint · package · ios · mac jobs; `.github/scripts/select-xcode.sh` pins Xcode 26.2 (the image defaults to the newest 26.x, and `macos-15` only has Xcode 16.x, which cannot compile isolated `@MainActor` conformances) |
 | Release | tag `vX.Y.Z` → `release.yml` | — | ad-hoc `.ipa`, `PocketTmux.app` zip (unsigned until a Developer ID is added), `pockettmuxd` tarball, changelog notes |
 
 ## Version notes
