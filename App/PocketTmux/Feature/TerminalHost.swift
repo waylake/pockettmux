@@ -30,12 +30,13 @@ struct TerminalHost: UIViewRepresentable {
         context.coordinator.terminalView = tv
         coordinator = context.coordinator
         // Swipe-to-scroll inside TUIs (see TerminalCoordinator.scrollDrag).
+        // The coordinator's delegate methods gate it to the alternate screen and
+        // make every other pan on the view (scrollback, SwiftTerm's mouse drag)
+        // wait for it to fail.
         let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(TerminalCoordinator.scrollDrag(_:)))
         pan.delegate = context.coordinator
         pan.cancelsTouchesInView = false
-        pan.delaysTouchesBegan = false
         tv.addGestureRecognizer(pan)
-        tv.panGestureRecognizer.require(toFail: pan)
         return tv
     }
 

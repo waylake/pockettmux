@@ -37,3 +37,29 @@ xcrun devicectl device install app \
 Quick compile check (no signing needed): `xcodebuild build -scheme PocketTmux -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build/Sim -skipPackagePluginValidation`.
 
 `devicectl device install app` upgrades in place — a plain re-install of the new build over the old one.
+
+## Scrolling (Sep 2026) — read before touching gestures
+
+Scrolling was dead everywhere (TUI *and* shell scrollback) for one reason:
+**`tmux -CC` replays nothing that predates the control client.** No `?1049h`,
+no `?1006h`, no pane content. SwiftTerm therefore believed it was on the normal
+buffer with mouse off and an empty scrollback, so `gestureRecognizerShouldBegin`
+(gated on `isCurrentBufferAlternate`) was hard-wired to `false`.
+
+`TmuxControl.primeScreen` fixes it at the source: on attach it reads
+`#{alternate_on}` / `#{mouse_any_flag}` / `#{mouse_sgr_flag}` /
+`#{keypad_cursor_flag}` and `capture-pane -p -e`, and sends the equivalent
+escapes + content as the first frame. Don't "fix" scrolling in the gesture
+recognizers — check that priming is still happening first:
+`python3 scripts/check-attach-prime.py`. Full write-up: `docs/TROUBLESHOOTING.md` §3.
+
+Second trap: SwiftTerm adds its own mouse-drag pan once mouse mode is on. The
+swipe pan's delegate makes **every other pan on the view require it to fail**
+(`gestureRecognizer(_:shouldBeRequiredToFailBy:)`) — don't reintroduce a
+`require(toFail:)` on just the scroll pan, and don't disable `allowMouseReporting`
+(taps → clicks in TUIs depend on it).
+
+Seeing the app's `print`s on the phone: `xcrun devicectl device process launch
+--console --terminate-existing --device 0D5A0A22-… com.waylake.pockettmux`
+streams stdout to the Mac (`CLIENT: swipe …`, `CLIENT: feed …`).
+

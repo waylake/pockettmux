@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - v1: `pockettmuxd` Mac agent (WebSocket + `tmux -CC` control client, token auth, QR pairing) and the native iPhone client (Connect / QR scan / session list / SwiftTerm terminal). `scripts/start-agent.sh`, `scripts/pair.sh`.
 - `docs/PRODUCT-v1.md`, `docs/TROUBLESHOOTING.md` (attach → "session ended", window-size flicker, scrolling).
 
+### Fixed
+- **Scrolling — nothing scrolled, in TUIs or in the shell scrollback.** Root cause: `tmux -CC` replays nothing that predates the control client, so the phone's emulator never learned the pane was on the alternate screen / had mouse reporting on, and started with an empty scrollback; the swipe gate (`isCurrentBufferAlternate`) was therefore hard-wired to `false`. The agent now primes the emulator on attach from tmux's own per-pane state (`#{alternate_on}`, `#{mouse_*_flag}`, `#{keypad_cursor_flag}`, `capture-pane -p -e` incl. up to 2000 lines of history). Second cause: SwiftTerm's own mouse-drag pan raced the swipe pan once mouse mode was known; the swipe pan is now required-to-fail by every other pan on the view.
+- Swipe direction now follows iOS (drag down = older content); apps that don't read the mouse (less, man, vim) get cursor keys instead of wheel bytes (xterm `alternateScroll`).
+- `scripts/check-attach-prime.py` — end-to-end check over the real WebSocket for the priming frame (alt / normal / mouse-reporting panes).
+
 ## [0.1.0] - 2026-09-01
 
 ### Added

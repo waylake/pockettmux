@@ -98,8 +98,53 @@ final class TmuxControl {
         // current size and a plain `refresh-client` forces the full initial
         // paint; the phone's own size arrives as a resize shortly after.
         writeLine("refresh-client")
+        primeScreen(sessionID: sessionID)
         // Resolve the active pane now (single text reply expected next).
         writeLine("display-message -p '#{pane_id}'")
+    }
+
+    /// tmux control mode relays only *new* pane output — it replays nothing that
+    /// predates the control client (verified against tmux 3.7c: attach +
+    /// `refresh-client` yields zero `%output` frames, even for a pane running
+    /// vim). So the phone's emulator starts blank, with an empty scrollback and,
+    /// worse, **no idea** that the pane is on the alternate screen or has mouse
+    /// reporting on — the app emitted those escapes before we attached. Every
+    /// client-side heuristic built on `isCurrentBufferAlternate` / `mouseMode`
+    /// therefore read `false`/`off` forever, which is why swipe-to-scroll in a
+    /// TUI never fired.
+    ///
+    /// tmux tracks all of it per pane, so rebuild the state and hand it to the
+    /// phone as the first frame. This is what control-mode clients are expected
+    /// to do — the tmux wiki leaves the initial paint to the client, "for
+    /// example using capture-pane", and iTerm2 does the same.
+    private func primeScreen(sessionID: String) {
+        let fmt = "#{alternate_on}|#{mouse_any_flag}|#{mouse_sgr_flag}|#{keypad_cursor_flag}|#{history_size}"
+        guard let raw = TmuxQueries.run(["display-message", "-p", "-t", sessionID, fmt]) else { return }
+        let f = raw.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        func flag(_ i: Int) -> Bool { i < f.count && f[i] == "1" }
+        let alt = flag(0)
+
+        var esc = "\u{1b}[?1049l\u{1b}[H\u{1b}[2J\u{1b}[3J"   // leave any alt buffer, clear screen + scrollback
+        if alt { esc += "\u{1b}[?1049h" }
+        if flag(1) {
+            esc += "\u{1b}[?1000h\u{1b}[?1002h"
+            if flag(2) { esc += "\u{1b}[?1006h" }
+        }
+        if flag(3) { esc += "\u{1b}[?1h" }                      // DECCKM: application cursor keys
+
+        // The alternate screen has no scrollback; the normal one does, and it is
+        // the only history the phone can ever drag through.
+        let history = min(Int(f.count > 4 ? f[4] : "0") ?? 0, 2000)
+        let start = alt ? "0" : "-\(history)"
+        if let dump = TmuxQueries.run(["capture-pane", "-p", "-e", "-t", sessionID, "-S", start, "-E", "-"]) {
+            // capture-pane separates lines with a bare LF, which keeps the column;
+            // the phone needs a CR too. Trailing blank lines would push the cursor
+            // off the captured screen, so drop them.
+            var lines = dump.components(separatedBy: "\n")
+            while let last = lines.last, last.isEmpty { lines.removeLast() }
+            esc += "\u{1b}[H" + lines.joined(separator: "\r\n")
+        }
+        onActiveOutput?(Array(esc.utf8))
     }
 
     private func killChild() {

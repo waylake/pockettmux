@@ -207,7 +207,7 @@ Phone                              Agent                            tmux
 ## 8. Open questions
 
 1. **Sixel / graphics on the phone** — SwiftTerm supports Sixel & imgcat/Kitty; do we render them in v1 or pass them through invisibly?
-2. **tmux mouse passthrough** — if a pane app wants the mouse, does the phone's touch map to tmux mouse events, or stay keyboard-only in v1?
+2. ~~**tmux mouse passthrough**~~ — **resolved in v1.** On attach the agent *primes* the phone's emulator with the pane's real state, because `tmux -CC` replays nothing that predates the control client (no `?1049h`, no `?1006h`, no content): `#{alternate_on}`, `#{mouse_*_flag}`, `#{keypad_cursor_flag}` become the equivalent escapes and `capture-pane -p -e` becomes the first frame, with scrollback for normal-buffer panes. From then on SwiftTerm's own state is trustworthy, and a touch-drag on the alternate screen becomes SGR wheel events (`ESC[<64/65;col;rowM`) when the app reads the mouse (pi `fullscreen`, Claude Code, opencode) or cursor up/down keys when it doesn't (less/man/vim — xterm's `alternateScroll`), injected via `send-keys -H`. See `TmuxControl.primeScreen`, `TerminalCoordinator.sendScroll`, TROUBLESHOOTING §3.
 3. **iCloud/KVS or a local config store** for the agent address (so the phone remembers *which* Mac, not just the token)?
 4. **Bonjour/mDNS discovery** — nice-to-have auto-configure; v1 is manual IP.
 5. **Binary protocol** — JSON v1 is debuggable; a compact binary v2 for high-throughput output is plausible. Keep the envelope.
