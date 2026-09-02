@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PocketTmux — your Mac's tmux, in your pocket</title>
+<meta name="description" content="A macOS menu-bar agent and a native iPhone terminal that attach to the same tmux server over Wi-Fi or Tailscale. tmux control mode, primed first paint, no cloud. MIT.">
+<link rel="icon" href="assets/icon.png" sizes="256x256" type="image/png">
+<link rel="canonical" href="https://waylake.github.io/pockettmux/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="PocketTmux — your Mac's tmux, in your pocket">
+<meta property="og:description" content="A macOS menu-bar agent and a native iPhone terminal on one tmux server. Over Wi-Fi or Tailscale, no cloud in between.">
+<meta property="og:image" content="https://waylake.github.io/pockettmux/assets/social-preview.png">
+<meta property="og:url" content="https://waylake.github.io/pockettmux/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+
+<a class="skip" href="#hero">Skip to content</a>
+
+<header class="nav">
+  <p class="nav__line">
+    <span class="nav__prompt" aria-hidden="true">&gt;</span>
+    <span class="nav__cmd">pockettmux</span>
+    <a class="nav__flag" href="#tour">--tour</a>
+    <a class="nav__flag" href="#how">--how</a>
+    <a class="nav__flag" href="#spec">--spec</a>
+    <a class="nav__flag" href="#get">--get</a>
+    <span class="caret" aria-hidden="true">▮</span>
+  </p>
+  <a class="nav__repo" href="https://github.com/waylake/pockettmux">GitHub</a>
+</header>
+
+<main>
+
+  <section class="hero reveal" id="hero" style="--i:0">
+    <div class="hero__text">
+      <h1 class="hero__title">Your Mac&#8217;s tmux,<br>in your pocket.</h1>
+      <p class="hero__lede">
+        A menu-bar agent on the Mac. A native terminal on the iPhone. One tmux
+        server between them, so the pane your Mac&#8217;s terminals see is the pane
+        your phone renders &mdash; over Wi-Fi or Tailscale, with nothing in between.
+      </p>
+      <pre class="cmd" aria-label="Starting the headless agent"><span class="cmd__sigil">$</span> pockettmuxd --port 7682 --name &#8220;MacBook Pro&#8221;
+<span class="cmd__out">listening on ws://0.0.0.0:7682/ws (tmux 3.7c)</span></pre>
+      <p class="hero__actions">
+        <a class="btn btn--primary" href="https://github.com/waylake/pockettmux/releases/latest">Download 1.0.0</a>
+        <a class="btn" href="https://github.com/waylake/pockettmux">Read the source</a>
+      </p>
+      <p class="hero__meta">macOS 14+ &middot; iOS 16+ &middot; needs <code>tmux</code> &middot; MIT</p>
+    </div>
+    <figure class="hero__figure">
+      <img src="assets/mac-menu.png" width="640" height="634" fetchpriority="high"
+           alt="The PocketTmux menu-bar panel: agent running on port 7682, one connected iPhone attached to the dev session, and the Mac's live tmux sessions.">
+      <figcaption>The Mac side. The agent, the phones on it, the sessions they are in.</figcaption>
+    </figure>
+  </section>
+
+  <section class="tour reveal" id="tour" style="--i:1">
+    <h2 class="section__title">Three taps from the lock screen to the pane</h2>
+
+    <div class="step step--pair">
+      <figure class="shot shot--wide">
+        <img src="assets/mac-pair.png" width="840" height="1184" loading="lazy"
+             alt="The Pair iPhone window: a QR code, an address picker set to the Tailscale address, the pairing link and a masked token.">
+      </figure>
+      <div class="step__body">
+        <h3>Pair once</h3>
+        <p>
+          The QR carries the address you pick &mdash; Tailscale first, LAN second &mdash;
+          the port and a 32-character token. The phone stores it in the Keychain.
+          No account, no relay, nothing to sign up for.
+        </p>
+      </div>
+    </div>
+
+    <div class="step step--sessions">
+      <div class="step__body">
+        <h3>Pick a session</h3>
+        <p>
+          Every session the Mac has, with its window count, how many clients are
+          attached, and the round-trip time to the agent. Create, rename and kill
+          them from the phone; the Mac&#8217;s own terminals see the same list a moment later.
+        </p>
+      </div>
+      <figure class="shot shot--phone shot--trim">
+        <img src="assets/ios-sessions.png" width="620" height="1348" loading="lazy"
+             alt="The Sessions screen on iPhone: connected, tmux 3.7c, 15 ms round-trip, and three sessions — api, dev and notes — with window and client counts.">
+      </figure>
+    </div>
+
+    <div class="step step--terminal">
+      <figure class="shot shot--phone">
+        <img src="assets/ios-nvim.png" width="620" height="1348" loading="lazy"
+             alt="Neovim running inside a tmux window, rendered on the iPhone with syntax colours, line numbers and the window strip above it.">
+      </figure>
+      <figure class="shot shot--phone">
+        <img src="assets/ios-keyboard.png" width="620" height="1348" loading="lazy"
+             alt="The iPhone terminal with the accessory keyboard row: esc, ctrl, tab, tilde, pipe, slash, dash and arrow keys above the software keyboard.">
+      </figure>
+      <div class="step__body step__body--span">
+        <h3>Type into the real pane</h3>
+        <p>
+          A key on the phone is a key in the pane: <code>send-keys -H</code> on the
+          control client&#8217;s stdin, one hex byte per keystroke. Alternate screen,
+          TrueColor and mouse reporting all work, so nvim, htop and anything else
+          with a full-screen UI behave the way they do on the Mac. The accessory row
+          keeps <kbd>esc</kbd>, <kbd>ctrl</kbd> and the arrows under your thumbs;
+          the strip above switches tmux windows.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="how reveal" id="how" style="--i:2">
+    <h2 class="section__title">Why the first frame is the hard part</h2>
+    <div class="how__grid">
+      <div class="how__prose">
+        <p>
+          <code>tmux -CC</code> gives an exact byte stream and stable ids, but it
+          replays nothing that predates the control client: no <code>?1049h</code>,
+          no mouse mode, no pane content. A client that trusts control mode alone
+          believes it is on an empty normal buffer, which is why scrollback and TUIs
+          used to be dead on the phone.
+        </p>
+        <p>
+          So the agent reconstructs the first frame from tmux itself &mdash; alternate
+          screen, mouse flags, cursor position and the captured pane &mdash; and sends it
+          as one <code>screen{reset}</code>. It runs again on every window and pane
+          switch, including the ones you make on the Mac.
+        </p>
+        <p class="how__link">
+          <a href="https://github.com/waylake/pockettmux/blob/main/docs/PROTOCOL.md">Protocol v2 reference</a>
+          <a href="https://github.com/waylake/pockettmux/blob/main/docs/ARCHITECTURE.md">Architecture &amp; decisions</a>
+          <a href="https://github.com/waylake/pockettmux/blob/main/docs/TROUBLESHOOTING.md">The failures behind each fix</a>
+        </p>
+      </div>
+      <div class="how__trace">
+        <p class="how__label">one attach, frame by frame</p>
+        <pre class="trace" aria-label="Frame-by-frame trace of one attach"><span class="trace__p">phone</span> <span class="trace__a">→</span> hello<span class="trace__d">{v:2, auth}</span>
+<span class="trace__p">agent</span> <span class="trace__a">←</span> hello.ack<span class="trace__d">{host, caps}</span>
+<span class="trace__p">phone</span> <span class="trace__a">→</span> session.attach<span class="trace__d">{id:$1, cols:46, rows:42}</span>
+<span class="trace__c">tmux  · forkpty: tmux -CC attach -t $1
+tmux  · resize-window + window-size manual
+tmux  · display-message #{alternate_on}…
+tmux  · capture-pane -p -e</span>
+<span class="trace__p">agent</span> <span class="trace__a">←</span> session.attached<span class="trace__d">{session, windows}</span>
+<span class="trace__p">agent</span> <span class="trace__a">←</span> screen<span class="trace__d">{reset}</span>   <span class="trace__c">primed: escapes + content + cursor</span>
+<span class="trace__p">agent</span> <span class="trace__a">←</span> screen<span class="trace__d">{update}</span>  <span class="trace__c">coalesced every 16 ms</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="spec reveal" id="spec" style="--i:3">
+    <h2 class="section__title">What it actually is</h2>
+    <table class="spec__table">
+      <caption class="visually-hidden">PocketTmux 1.0.0 specifications</caption>
+      <tbody>
+        <tr><th scope="row">Transport</th><td>WebSocket, JSON frames, protocol v2</td><td>Network.framework on the Mac, <code>URLSessionWebSocketTask</code> on the phone</td></tr>
+        <tr><th scope="row">tmux bridge</th><td>control mode on a pty</td><td>one <code>tmux -CC</code> client per attached phone</td></tr>
+        <tr><th scope="row">Output pacing</th><td>16 ms frames</td><td>512 KiB in the buffer flushes immediately</td></tr>
+        <tr><th scope="row">Input</th><td><code>send-keys -H</code>, 128 keys per line</td><td>paste goes through <code>load-buffer</code> so bracketed paste still applies</td></tr>
+        <tr><th scope="row">Discovery</th><td>Bonjour <code>_pockettmux._tcp</code></td><td>plus QR and <code>pockettmux://</code> links for Tailscale</td></tr>
+        <tr><th scope="row">Auth</th><td>32-character token, constant-time compare</td><td>no TLS in v1 &mdash; LAN or Tailscale only, never port-forwarded</td></tr>
+        <tr><th scope="row">Requirements</th><td>macOS 14 &middot; iOS 16 &middot; tmux 3.7c</td><td>the Mac app is not sandboxed: it execs your tmux</td></tr>
+        <tr><th scope="row">Tests</th><td>23 package &middot; 15 iOS &middot; 1 end-to-end script</td><td><code>swift test</code>, <code>xcodebuild test</code>, <code>check-attach-prime.py</code></td></tr>
+        <tr><th scope="row">Dependencies</th><td>SwiftTerm 1.20 &mdash; and nothing else</td><td>no analytics, no accounts, no servers we run</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="get reveal" id="get" style="--i:4">
+    <h2 class="section__title">Get it</h2>
+    <div class="get__grid">
+      <article class="get__card">
+        <h3>PocketTmux for Mac</h3>
+        <p class="get__file">PocketTmux-macOS-v1.0.0.zip <span class="get__size">1.0 MB</span></p>
+        <p>Menu-bar app that hosts the agent. Unsigned, so the first launch is right-click &rarr; Open.</p>
+        <p><a class="btn" href="https://github.com/waylake/pockettmux/releases/latest">Download</a></p>
+      </article>
+      <article class="get__card">
+        <h3>PocketTmux for iPhone</h3>
+        <p class="get__file">PocketTmux-iOS-v1.0.0-unsigned.ipa <span class="get__size">1.1 MB</span></p>
+        <p>Re-sign it with your own Apple ID (Sideloadly, AltStore) or run the scheme from Xcode.</p>
+        <p><a class="btn" href="https://github.com/waylake/pockettmux/releases/latest">Download</a></p>
+      </article>
+      <article class="get__card">
+        <h3>pockettmuxd</h3>
+        <p class="get__file">pockettmuxd-v1.0.0.tar.gz <span class="get__size">0.5 MB</span></p>
+        <p>The same agent as a CLI, for headless Macs and scripts. Flags for port, token, name and tmux path.</p>
+        <p><a class="btn" href="https://github.com/waylake/pockettmux/releases/latest">Download</a></p>
+      </article>
+    </div>
+    <pre class="cmd cmd--build" aria-label="Building from source"><span class="cmd__sigil">$</span> git clone https://github.com/waylake/pockettmux &amp;&amp; cd pockettmux/App
+<span class="cmd__sigil">$</span> xcodegen generate &amp;&amp; open PocketTmux.xcodeproj
+<span class="cmd__out">schemes: PocketTmux (iOS) · PocketTmuxMac · pockettmuxd</span></pre>
+  </section>
+
+</main>
+
+<footer class="colophon">
+  <p>
+    PocketTmux 1.0.0, released 2 September 2026. Built on <a href="https://github.com/tmux/tmux">tmux</a> 3.7c
+    and <a href="https://github.com/migueldeicaza/SwiftTerm">SwiftTerm</a> 1.20; Swift 6.2, XcodeGen, no other
+    dependencies. Every screen on this page is a real capture of the shipping apps, taken against a throwaway
+    tmux server; the only edit is one omitted row of local IP addresses. Type is JetBrains Mono and IBM Plex Sans, self-hosted &mdash; this page makes no
+    third-party requests. Source, issues and the changelog live on
+    <a href="https://github.com/waylake/pockettmux">GitHub</a>; the security model is written down in
+    <a href="https://github.com/waylake/pockettmux/blob/main/SECURITY.md">SECURITY.md</a>.
+    <a href="https://github.com/waylake/pockettmux/blob/main/LICENSE">MIT licensed</a>, by waylake, 2026.
+  </p>
+</footer>
+
+</body>
+</html>

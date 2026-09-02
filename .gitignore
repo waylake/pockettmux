@@ -27,3 +27,6 @@ fastlane/screenshots/
 
 # --- logs ---
 *.log
+
+# landing page build output
+_site/

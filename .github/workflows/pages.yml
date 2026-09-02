@@ -1,0 +1,51 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/assets/**'
+      - 'scripts/build-site.sh'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+# The landing page is static: no build step, no bundler, no npm. `build-site.sh`
+# copies site/ into _site/ and drops docs/assets in beside it, so the README and
+# the page share one set of screenshots.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble _site
+        run: ./scripts/build-site.sh
+
+      - name: Check every referenced asset exists
+        run: |
+          missing=0
+          while read -r ref; do
+            [ -f "_site/$ref" ] || { echo "missing: $ref"; missing=1; }
+          done < <(grep -oE '(src|href)="[^"#:]+"' _site/index.html | cut -d'"' -f2)
+          exit $missing
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4

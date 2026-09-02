@@ -17,6 +17,8 @@ over Wi-Fi or Tailscale, with no cloud in between.
 [![tmux 3.7](https://img.shields.io/badge/tmux-3.7-1bb91f?style=flat-square)](https://github.com/tmux/tmux)
 [![MIT](https://img.shields.io/badge/license-MIT-111?style=flat-square)](LICENSE)
 
+**[waylake.github.io/pockettmux](https://waylake.github.io/pockettmux/)** &nbsp;·&nbsp; [Download 1.0.0](https://github.com/waylake/pockettmux/releases/latest) &nbsp;·&nbsp; [Protocol](docs/PROTOCOL.md) &nbsp;·&nbsp; [Architecture](docs/ARCHITECTURE.md)
+
 <p>
   <img src="docs/assets/ios-terminal.png" width="240" alt="Terminal attached to a tmux session">
   <img src="docs/assets/ios-nvim.png" width="240" alt="Neovim running in a tmux window">

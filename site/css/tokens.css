@@ -1,0 +1,71 @@
+/* PocketTmux design tokens
+ * Brand-locked: these values are the app's own palette, lifted from
+ * App/iOS/Design/Theme.swift (墨 sumi ink · 藍墨 aizumi · 和紙 washi paper ·
+ * 朱 shu accent · 萌葱 moegi) and converted to OKLCH so the web surface and the
+ * two apps stay the same product.
+ *
+ * Axes — paper band: dark (L 15%) · display style: mono · accent hue: warm (32°)
+ */
+
+:root {
+  /* ---- colour ------------------------------------------------------ */
+  --color-paper:    oklch(15.0% 0.008 265);   /* #0B0D11 墨 */
+  --color-paper-2:  oklch(18.6% 0.011 265);   /* #12161D 藍墨 */
+  --color-paper-3:  oklch(21.8% 0.014 265);   /* #181E28 */
+  --color-rule:     oklch(28.5% 0.014 265);
+  --color-rule-2:   oklch(38.0% 0.016 265);
+  --color-muted:    oklch(63.0% 0.006 265);   /* #8A8B8D 鼠色 */
+  --color-ink:      oklch(90.5% 0.014 95);    /* #E4E0D4 和紙 */
+  --color-accent:   oklch(63.5% 0.155 32);    /* #E0584C 朱 */
+  --color-accent-2: oklch(70.0% 0.120 32);    /* hover / underline */
+  --color-ok:       oklch(64.0% 0.090 165);   /* #43A885 萌葱 */
+  --color-focus:    oklch(74.0% 0.150 32);
+
+  /* ---- type -------------------------------------------------------- */
+  --font-display: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  --font-body:    'IBM Plex Sans', system-ui, sans-serif;
+
+  --text-xs:   0.75rem;
+  --text-sm:   0.8125rem;
+  --text-base: 1rem;
+  --text-md:   1.1875rem;
+  --text-lg:   1.4375rem;
+  --text-xl:   1.75rem;
+  --text-2xl:  2.1875rem;
+  --text-3xl:  2.75rem;
+  --text-display: clamp(2.25rem, 4.2vw + 0.75rem, 4.25rem);
+
+  /* ---- space (4pt) ------------------------------------------------- */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs:  0.5rem;
+  --space-sm:  0.75rem;
+  --space-md:  1rem;
+  --space-lg:  1.5rem;
+  --space-xl:  2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+  --space-4xl: 9rem;
+  --page-gutter: clamp(1rem, 4vw, 3.5rem);
+  /* character-relative gaps: a CLI line is spaced on the terminal grid, not the 4pt one */
+  --space-ch: 0.75ch;
+  --space-ch-sm: 0.3ch;
+
+  /* ---- lines, radii, depth ---------------------------------------- */
+  --rule-hair: 1px;
+  --rule-thick: 2px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+
+  --z-base: 1;
+  --z-raised: 10;
+  --z-sticky: 200;
+
+  /* ---- motion ------------------------------------------------------ */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in:  cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long:  420ms;
+}
