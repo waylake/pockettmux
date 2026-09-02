@@ -14,11 +14,12 @@
 
 ## Self-check
 - [ ] `cd App && xcodegen generate` — the project regenerates cleanly
-- [ ] Build: `xcodebuild -project App/PocketTmux.xcodeproj -scheme PocketTmux -destination 'platform=iOS Simulator,name=iPhone 16' build`
-- [ ] Test: `... test` (and new tests for the change, if there's logic)
+- [ ] Package: `swift test --package-path App/PocketTmuxKit` passes (if `PocketTmuxKit/` changed)
+- [ ] iPhone: `xcodebuild -project App/PocketTmux.xcodeproj -scheme PocketTmux -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -skipPackagePluginValidation test`
+- [ ] Mac: `xcodebuild -project App/PocketTmux.xcodeproj -scheme PocketTmuxMac -destination 'platform=macOS' -skipPackagePluginValidation build` (and `-scheme pockettmuxd` if the agent changed)
 - [ ] `swiftlint lint` is clean (or the exception is documented)
 - [ ] If behavior/protocol changed → `CHANGELOG.md` updated + the relevant `docs/` updated
-- [ ] If UI → a screenshot (simulator) attached
+- [ ] If UI → a screenshot (simulator / Mac) attached
 
 ## Notes for review
 <!-- Anything the reviewer should know: trade-offs, follow-ups, known limits -->

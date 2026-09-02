@@ -1,102 +1,110 @@
 # PocketTmux
 
-**Your Mac's tmux, in your pocket.** PocketTmux is a native iOS app (Swift + SwiftUI) that lets you attach to `tmux` sessions running on your Mac — over your local Wi-Fi, with no cloud in between.
-
-> [!NOTE]
-> "PocketTmux" is a working name — rename PRs welcome. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design rationale.
-
-## How it works
+**Your Mac's tmux, in your pocket.** Two native apps: a **menu-bar app for the Mac** that hosts the agent and pairs by QR, and an **iPhone app** that attaches to your tmux sessions as another terminal of the Mac — over Wi-Fi or Tailscale, no cloud in between.
 
 ```
-  iPhone (PocketTmux.app)                         Mac
-┌────────────────────────────────┐    Wi-Fi (LAN)   ┌────────────────────────────────┐
-│ SwiftUI UI                          │                  │ Agent (macOS daemon)           │
-│   └─ TerminalView (SwiftTerm)   │  ── keystrokes ───▶  │   └─ tmux control mode (tmux -CC)  │
-│   └─ Transport (WebSocket)      │  ◀── screen ──────  │       session → window → pane     │
-└────────────────────────────────┘                  └────────────────────────────────┘
+  iPhone — PocketTmux.app                          Mac — PocketTmux.app (menu bar)
+┌────────────────────────────────┐                ┌────────────────────────────────────┐
+│ Macs → Sessions → Terminal     │  ws (LAN /     │ agent: WebSocket + tmux -CC        │
+│   SwiftTerm · window strip     │  Tailscale)    │ pairing QR · settings · log        │
+│   accessory keyboard · paste   │ ◀────────────▶ │       │                            │
+└────────────────────────────────┘                │       ▼ control mode               │
+                                                  │ tmux server — sessions/windows/panes│
+                                                  └────────────────────────────────────┘
 ```
 
-A keypress on the phone becomes a tmux keypress in the target pane; pane output streams back and is rendered by the in-app terminal engine. **tmux is the single source of truth** — the phone is just another client, like the Mac's own terminals. The complete request/response flow (attach, input, screen update, resize, reconnect) is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#4-request-flow).
+A key tapped on the phone is a tmux key in the real pane; the pane's output streams back and is rendered by a native terminal engine. **tmux is the single source of truth** — the phone is just another client, like the Mac's own terminals. Full request flow: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#4-request-flow). Wire format: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Features
 
-**v0.1 (this release) — planning & skeleton:**
-- Well-structured repo: planning docs (architecture, tech stack, roadmap), CI, release pipeline, license, contributing guide
-- Buildable iOS app skeleton (SwiftUI) with a connection screen
-- A P0 path to get a terminal on your phone in minutes (a `ttyd`-based PWA) — see [docs/ROADMAP.md](docs/ROADMAP.md)
+**PocketTmux for Mac** (macOS 14+, menu bar)
+- Start/stop the agent; status, port and reachable addresses at a glance
+- **Pair iPhone…** — QR / link with the address you choose (Tailscale first), token copy
+- Connected iPhones (which session each is on) and live tmux sessions (open in Terminal, kill)
+- Settings: launch at login, auto-start, keep Mac awake while a phone is attached, Bonjour advertising, name, port, token regenerate, tmux path, log
+- `pockettmuxd` — the same agent as a CLI for headless Macs and scripts
 
-**Planned (v1.0):**
-- Attach / detach / create / destroy tmux sessions from the phone
-- Live screen rendering (ANSI, 256-color, TrueColor), terminal resize, scrollback
-- Reconnect with state restore; agent auth (token)
-- macOS menu-bar agent (launch at login, port & token config)
+**PocketTmux for iPhone** (iOS 16+)
+- **Macs**: saved Macs (many, Keychain), nearby Macs found over Bonjour, add by QR / `pockettmux://` link / manually
+- **Sessions**: live list, new / rename / kill, attach; connection status with round-trip time
+- **Terminal**: SwiftTerm rendering (TrueColor, alternate screen, mouse reporting), accessory keyboard (Esc / Ctrl / arrows / F-keys), **window strip** (switch, new, rename, kill), paste with bracketed-paste semantics, swipe-to-scroll inside TUIs (pi, Claude Code, vim, less) and primed scrollback in shells, font size, haptic bell, keep-awake
+- Reconnects with backoff and re-attaches by itself; the first paint after any attach is rebuilt from tmux's own state (no blank or garbled screens)
 
-## Quick start
+## Install
 
-**Prereqs (Mac):** macOS 26, Xcode 26.2+, [xcodegen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`), [tmux](https://github.com/tmux/tmux) 3.7+ (`brew install tmux`).
-**Prereqs (phone):** iPhone running iOS 16+ (developed against iOS 26).
+**Mac**
+1. Download `PocketTmux-macOS-*.zip` from [Releases](https://github.com/waylake/pockettmux/releases) (or build: see below), move `PocketTmux.app` to Applications, open it (CI builds are unsigned: right-click → Open the first time).
+2. It appears in the menu bar. `tmux` must be installed (`brew install tmux`).
+3. Menu bar → **Pair iPhone…**
+
+**iPhone**
+1. Install the `.ipa` from Releases (ad-hoc) or build & run from Xcode on your device.
+2. Open PocketTmux → **+** → **Scan QR** → point at the Mac's pairing window. On the same Wi-Fi the Mac also shows up under *Nearby Macs*.
+3. Tap a session. You're in.
+
+> First run on the Mac shows the *"allow incoming connections?"* firewall prompt — allow it, or the phone can't reach the agent.
+
+## Build from source
+
+Prereqs: macOS 26, Xcode 26.2+, `brew install xcodegen tmux` (`swiftlint` optional).
 
 ```sh
 git clone https://github.com/waylake/pockettmux.git
 cd pockettmux/App
-xcodegen generate          # regenerates PocketTmux.xcodeproj from Project.yml
-open PocketTmux.xcodeproj # pick a device/simulator, ⌘R to build & run
+xcodegen generate                       # PocketTmux.xcodeproj from Project.yml (git-ignored)
+open PocketTmux.xcodeproj               # schemes: PocketTmux (iOS), PocketTmuxMac, pockettmuxd
 ```
 
-### v1 — native agent + app
+Command line (every `xcodebuild` needs `-skipPackagePluginValidation`, see [CLAUDE.md](CLAUDE.md)):
 
 ```sh
-cd pockettmux
-scripts/start-agent.sh     # builds & runs pockettmuxd (ws://0.0.0.0:7682), token in ~/.pockettmux/token
-scripts/pair.sh            # shows a pairing QR on screen
+# Mac app
+xcodebuild build -scheme PocketTmuxMac -destination 'platform=macOS' \
+  -derivedDataPath build/Mac -skipPackagePluginValidation
+open build/Mac/Build/Products/Debug/PocketTmux.app
+
+# iPhone app (simulator)
+xcodebuild build -scheme PocketTmux -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -derivedDataPath build/Sim -skipPackagePluginValidation
+
+# headless agent + pairing QR without the Mac app
+../scripts/start-agent.sh && ../scripts/pair.sh
+
+# tests
+swift test --package-path PocketTmuxKit                     # protocol, parsers, primer
+xcodebuild test -scheme PocketTmux -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -derivedDataPath build/Sim -skipPackagePluginValidation   # iOS unit tests
+python3 ../scripts/check-attach-prime.py                    # end-to-end against a running agent
 ```
-
-On the iPhone: open PocketTmux → **Scan pairing QR** → point at the QR.
-The host/port/token are filled in and it connects. From then on the phone
-reconnects with a single tap. Manual fallback: Connect screen with
-the Tailscale/LAN IP, port 7682, token from `cat ~/.pockettmux/token`.
-
-> First run on the Mac shows the *“allow incoming connections?”* firewall
-> prompt — allow it, or the phone can't reach the agent (the app shows
-> Reconnecting…).
-> CLI note: xcodebuild needs `-skipPackagePluginValidation` for the SwiftTerm
-> build-tool plugin; the Xcode GUI builds normally.
-
-**P0 — a terminal on the phone in 2 minutes (optional):** run `ttyd tmux new -A -s main` on the Mac, open `http://<mac-ip>:7681` in the phone's Safari, and use *Add to Home Screen* to get a PWA. This validates the same architecture with zero native code; the native app replaces it from P1 on.
 
 ## Documentation
 
 | Doc | What it covers |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, the full request flow (keypress → tmux → screen), the transport protocol, key design decisions & alternatives, failure modes |
-| [docs/TECH_STACK.md](docs/TECH_STACK.md) | Every technology with version, license, rationale & alternatives — researched as of **2026-09** (GitHub API / npm registry / Apple Developer) |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Phases P0 → v1.0, milestones, definitions of done, non-goals |
-| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Real failure modes (attach → "session ended", window-size flicker) with root causes & the research behind each fix |
+| [docs/PRODUCT.md](docs/PRODUCT.md) | Product plan for both apps: jobs, screens, behaviour, design language, release scope |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, request flows (pair, attach, keys, windows, resize, reconnect), decisions & alternatives, failure modes |
+| [docs/PROTOCOL.md](docs/PROTOCOL.md) | Wire protocol v2 reference (frames, priming, pairing, discovery) |
+| [docs/TECH_STACK.md](docs/TECH_STACK.md) | Every technology with version, license, rationale |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What shipped in v1.0, what's next (notifications, pane picker, TLS, iPad) |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Real failure modes with root causes and the research behind each fix |
 
 ## Project layout
 
 ```
 .
-├── App/                    # the iOS app (XcodeGen + SPM)
-│   ├── Project.yml           # project spec (source of truth for the .xcodeproj)
-│   ├── PocketTmux/             # app sources (SwiftUI)
-│   └── PocketTmuxTests/          # unit tests
-├── docs/                     # design & planning docs
-├── .github/                  # CI/CD workflows, issue & PR templates
-├── CHANGELOG.md              # Keep a Changelog
-└── ...
+├── App/
+│   ├── Project.yml          # XcodeGen spec — four targets (source of truth)
+│   ├── PocketTmuxKit/       # Swift package: PocketTmuxKit (protocol, parsers) + PocketTmuxAgent (agent)
+│   ├── iOS/                 # PocketTmux for iPhone (SwiftUI + SwiftTerm)
+│   ├── iOSTests/            # iOS unit tests
+│   ├── macOS/               # PocketTmux for Mac (menu-bar app)
+│   └── Daemon/              # pockettmuxd (CLI agent)
+├── scripts/                 # start/stop-agent, pair (QR), e2e check, icon generator
+├── docs/                    # product, architecture, protocol, stack, roadmap, troubleshooting
+├── .github/                 # CI (lint · package · ios · mac) and tag-driven releases
+└── CHANGELOG.md
 ```
 
-The macOS agent will live in a separate `Agent/` target (added in P1 — see the roadmap).
+## Contributing, versioning, license
 
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup, workflow, commit conventions, testing, versioning & releases. TL;DR: fork → feature branch → Conventional Commits → PR (CI green + self-checklist) → review.
-
-## Versioning & releases
-
-**Semantic Versioning** (`MAJOR.MINOR.PATCH`); `0.x` is pre-1.0 (breaking changes expected). Releasing = push a `vX.Y.Z` tag → the [release workflow](.github/workflows/release.yml) archives the app and opens a GitHub Release with the `.ipa` and the changelog. The changelog follows [Keep a Changelog](https://keepachangelog.com).
-
-## License
-
-[MIT](LICENSE) — see the file. Third-party components (and their licenses) are listed in [docs/TECH_STACK.md](docs/TECH_STACK.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) (setup, workflow, Conventional Commits, tests). Semantic Versioning; pushing a `vX.Y.Z` tag builds the `.ipa`, the Mac app zip and the `pockettmuxd` tarball into a GitHub Release with the [CHANGELOG](CHANGELOG.md) section as notes. [MIT](LICENSE).

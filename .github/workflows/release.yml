@@ -16,6 +16,18 @@ permissions:
   contents: write
   actions: read
 
+# Every xcodebuild needs -skipPackagePluginValidation (SwiftTerm's build-tool
+# plugin fails validation on Xcode 26 before anything compiles; see CLAUDE.md).
+#
+# Signing status:
+#   iOS  — the ad-hoc archive/export only succeeds when the runner has a
+#          signing identity; it is allowed to fail so the Mac artifacts still ship.
+#   Mac  — PocketTmux.app and pockettmuxd are built UNSIGNED (CODE_SIGNING_ALLOWED=NO).
+#          Gatekeeper will block the first launch: users right-click → Open (or
+#          `xattr -d com.apple.quarantine`). Once a Developer ID certificate is
+#          added as a repository secret, replace the CODE_SIGN_* overrides with
+#          a proper sign + notarize step.
+
 jobs:
   release:
     name: Archive, package & publish
@@ -30,7 +42,8 @@ jobs:
         working-directory: App
         run: xcodegen generate
 
-      - name: Archive (ad-hoc)
+      # ---------------------------------------------------------------- iOS
+      - name: Archive iPhone app (ad-hoc)
         id: archive
         working-directory: App
         continue-on-error: true
@@ -41,6 +54,7 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath build/PocketTmux.xcarchive \
+            -skipPackagePluginValidation \
             archive
 
       - name: Export .ipa
@@ -64,16 +78,54 @@ jobs:
             -exportOptionsPlist ExportOptions.plist \
             -exportPath build
 
+      # ---------------------------------------------------------------- macOS
+      - name: Build PocketTmux for Mac (Release, unsigned)
+        id: mac
+        working-directory: App
+        continue-on-error: true
+        run: |
+          xcodebuild build \
+            -project PocketTmux.xcodeproj \
+            -scheme PocketTmuxMac \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath build/Mac \
+            -skipPackagePluginValidation \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO
+          ditto -c -k --keepParent \
+            build/Mac/Build/Products/Release/PocketTmux.app \
+            "build/PocketTmux-macOS-${GITHUB_REF_NAME}.zip"
+
+      - name: Build pockettmuxd (Release, unsigned)
+        id: daemon
+        working-directory: App
+        continue-on-error: true
+        run: |
+          xcodebuild build \
+            -project PocketTmux.xcodeproj \
+            -scheme pockettmuxd \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath build/Daemon \
+            -skipPackagePluginValidation \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO
+          tar -czf "build/pockettmuxd-${GITHUB_REF_NAME}.tar.gz" \
+            -C build/Daemon/Build/Products/Release pockettmuxd
+
+      # ---------------------------------------------------------------- publish
       - name: List artifacts
         working-directory: App
-        run: ls -lh build/*.ipa 2>/dev/null || echo "(no .ipa — check the archive/export steps)"
+        run: ls -lh build/*.ipa build/*.zip build/*.tar.gz 2>/dev/null || echo "(no artifacts — check the build steps)"
 
-      - name: Upload .ipa artifact
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: PocketTmux-${{ github.ref_name }}
-          path: App/build/*.ipa
+          path: |
+            App/build/*.ipa
+            App/build/*.zip
+            App/build/*.tar.gz
           if-no-files-found: warn
 
       - name: Publish GitHub Release
@@ -90,14 +142,20 @@ jobs:
           if [ ! -s "$NOTES_FILE" ]; then
             printf 'Release %s\n' "${GITHUB_REF_NAME}" > "$NOTES_FILE"
           fi
+          {
+            printf '\n### Downloads\n'
+            printf -- '- `PocketTmux-macOS-*.zip` — Mac menu-bar app (unsigned: right-click → Open on first launch)\n'
+            printf -- '- `pockettmuxd-*.tar.gz` — headless agent binary (unsigned)\n'
+            printf -- '- `*.ipa` — iPhone app, ad-hoc signed (only present when the runner could sign)\n'
+          } >> "$NOTES_FILE"
 
-          # Attach the .ipa if the archive/export produced one.
-          IPA_ARGS=()
-          if ls App/build/*.ipa >/dev/null 2>&1; then
-            for f in App/build/*.ipa; do IPA_ARGS+=("$f"); done
-          fi
+          # Attach whatever the build steps produced.
+          ASSETS=()
+          for f in App/build/*.ipa App/build/*.zip App/build/*.tar.gz; do
+            [ -f "$f" ] && ASSETS+=("$f")
+          done
 
           gh release create "${GITHUB_REF_NAME}" \
             --title "PocketTmux ${GITHUB_REF_NAME#v}" \
             --notes-file "$NOTES_FILE" \
-            "${IPA_ARGS[@]}" || true
+            "${ASSETS[@]}" || true

@@ -2,5 +2,37 @@
 # CI runs `swiftlint lint --strict`; keep new warnings at zero.
 excluded:
   - App/PocketTmux.xcodeproj
+  - App/PocketTmuxKit/.build
+  - App/build
   - build
   - DerivedData
+  - scripts
+
+disabled_rules:
+  - optional_data_string_conversion   # String(decoding:as:) is the intended lossy decode for pty bytes
+
+identifier_name:
+  min_length: 1            # short names in short scopes (i, n, c) are idiomatic Swift
+  max_length: 50
+cyclomatic_complexity:
+  ignores_case_statements: true   # codec / dispatch switches
+  warning: 20
+  error: 30
+line_length:
+  warning: 140
+  error: 180
+  ignores_comments: true
+  ignores_urls: true
+function_body_length:
+  warning: 80
+  error: 120
+type_body_length:
+  warning: 400
+  error: 600
+file_length:
+  warning: 600
+  error: 900
+nesting:
+  type_level: 2
+large_tuple:
+  warning: 3

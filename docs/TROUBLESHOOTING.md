@@ -2,7 +2,8 @@
 
 Field notes on real failures and the research behind each fix. Verified against
 tmux 3.7c and the live agent (reproduced with a raw WebSocket client replaying
-the phone's frames).
+the phone's frames — `scripts/check-attach-prime.py`). Code references point
+at `App/PocketTmuxKit/Sources/PocketTmuxAgent/` (agent) and `App/iOS/` (phone).
 
 ## 1. Attach shows "Session ended" and a black screen
 
@@ -18,13 +19,13 @@ control client. When a second control client takes over, the tmux server emits
 Reproduced: single attach → clean; two attaches 150 ms apart → `exit` (see
 `scripts/` + the protocol docs).
 
-**Fix (v1):** two layers.
-- `AgentClient.attach(_:)` dedupes — it keeps `pendingAttach` (which also
-  survives reconnects) and only sends `session.attach` when the target session
-  actually changed while connected. `helloAck` re-attaches via the same deduped
-  path, so reconnect re-attach still works.
-- `Connection.dispatch(.attachSession)` ignores an attach for the session it's
-  already showing, so older app builds that still double-send are safe too.
+**Fix:** two layers.
+- `AgentClient.attach(sessionID:)` dedupes — it keeps the wanted session
+  (which also survives reconnects) and only sends `session.attach` when the
+  target actually changed while connected. `hello.ack` re-attaches via the
+  same deduped path, so reconnect re-attach still works.
+- `AgentConnection.handle(.sessionAttach)` ignores an attach for the session
+  it's already showing, so older app builds that still double-send are safe too.
 
 ## 2. The Mac tmux window flashes to the phone size and back
 
@@ -53,17 +54,19 @@ The duplicate-attach bug (§1) made this worse: two kill/respawn cycles in a row
 - **`tmux attach -d`** force-detaches existing clients — not applicable; we
   want to coexist with the Mac client.
 
-**Fix (v1):** two pieces.
+**Fix:** two pieces.
 - **No forced sizes on attach.** The control client inherits the window's
-  current size and a plain `refresh-client` forces the initial full repaint.
+  current size; the phone's own size arrives with `session.attach{cols,rows}`
+  (or the first `resize`) and is applied exactly once.
 - **Pin `window-size manual` for the duration of the attach** (the same thing
-  iTerm2 does), and on the phone's `resize` run `tmux resize-window` to the
-  phone's size instead of `refresh-client -C`. With `manual` the window no
-  longer bounces between the Mac's and the phone's size while attached — the
-  phone renders at a readable phone-sized window, the Mac shows that size
-  steadily, and on detach the option is unset so the Mac client re-asserts its
-  own size. (`refresh-client -C` alone is ignored under `manual`, hence the
-  explicit `resize-window`.)
+  iTerm2 does): `TmuxRunner.pinWindowSize` runs `resize-window -x -y` +
+  `set-window-option window-size manual` on every window the phone looks at
+  (attach, window switch, resize). With `manual` the window no longer bounces
+  between the Mac's and the phone's size — the phone renders at a readable
+  phone-sized window, the Mac shows that size steadily, and on detach every
+  pinned window is unset (`TmuxControl.teardown`) so the Mac client re-asserts
+  its own size. (`refresh-client -C` alone is ignored under `manual`, hence
+  the explicit `resize-window`.)
 
 ## 3. Nothing scrolls — not in a TUI, not in the shell scrollback
 
@@ -99,15 +102,18 @@ capture-pane"* ([Control Mode](https://github.com/tmux/tmux/wiki/Control-Mode)).
 iTerm2's tmux integration does exactly that; PocketTmux simply never did
 ([iTerm2 tmux integration](https://iterm2.com/documentation-tmux-integration.html)).
 
-**Fix (`TmuxControl.primeScreen`).** tmux tracks all the missing state per
-pane, so on attach the agent rebuilds it and hands it to the phone as the
-first frame, before any live output:
+**Fix (`ScreenPrimer` + `TmuxControl.showActivePane`).** tmux tracks all the
+missing state per pane, so on attach — and on every window/pane switch — the
+agent rebuilds it and hands it to the phone as a `screen{reset}` frame,
+before any live output:
 
 - `#{alternate_on}` → `ESC[?1049h` (or `?1049l` first, to leave a stale one)
 - `#{mouse_any_flag}` / `#{mouse_sgr_flag}` → `ESC[?1000h ?1002h ?1006h`
 - `#{keypad_cursor_flag}` → `ESC[?1h` (DECCKM, so arrow keys are right)
 - `capture-pane -p -e` → the visible screen, plus up to 2000 lines of history
   when the pane is on the *normal* buffer (the alternate screen has none)
+- `#{cursor_x}` / `#{cursor_y}` → cursor restored (up from the bottom row,
+  then the column), so a shell prompt or an editor shows the caret where it is
 
 Everything downstream then works off SwiftTerm's own, now-correct state
 machine: the TUI's output lands in the alternate buffer, `?1049l` on quit
@@ -164,8 +170,40 @@ default `"regular"`):
   tui-mode, or `--tui-mode`). PgUp/PgDn also scroll the viewport there —
   SwiftTerm's accessory bar has both.
 
-**Check:** `python3 scripts/check-attach-prime.py` (agent must be running).
-It attaches over the real WebSocket to a vim pane, a shell pane and a
-mouse-reporting pane, and asserts the first `screen` frame carries the right
-alt-screen / mouse escapes and the pane's content.
+**Check:** `python3 scripts/check-attach-prime.py` (agent must be running;
+`POCKETTMUX_PORT` to pick a port). It attaches over the real WebSocket to a
+vim pane, a shell pane and a mouse-reporting pane, asserts the first
+`screen` frame carries the right alt-screen / mouse escapes and the pane's
+content, that the pane was sized before the paint, and then exercises
+windows, input, paste, ping, detach reasons and auth failure.
+
+## 4. Nothing under "Nearby Macs" on the phone
+
+**Symptom:** The Mac app is running but the iPhone's Macs screen shows no
+nearby Mac.
+
+**Causes, in order of likelihood:**
+- **Different networks.** Bonjour (mDNS) does not cross routers or
+  Tailscale. Pair with the QR / link instead — `HostInfo.addresses()` puts
+  the Tailscale address first for exactly this case.
+- **AP / client isolation** on the router (guest networks do this). Same
+  fix: QR with the LAN or Tailscale address, or disable isolation.
+- **Advertising is off** — Settings › General › *Advertise on the local
+  network*.
+- **Local Network permission** denied on the phone — Settings → PocketTmux
+  → Local Network.
+
+## 5. "port already in use" / "tmux was not found" in the menu-bar panel
+
+- Another agent is on the port — usually an old `pockettmuxd` started by
+  `scripts/start-agent.sh` (`lsof -nP -iTCP:7682 -sTCP:LISTEN`; stop it with
+  `scripts/stop-agent.sh`) — or change the port in Settings › Network.
+- tmux is looked up at `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`.
+  Anything else: Settings › Advanced › tmux path.
+
+## 6. The Mac app can't be opened ("unidentified developer")
+
+CI builds are unsigned until a Developer ID is added to the release
+workflow: right-click → Open once, or build from source (Xcode signs it
+with your own account automatically).
 

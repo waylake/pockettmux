@@ -1,223 +1,173 @@
 # Architecture — PocketTmux
 
-*Status: design baseline for v1. Decisions are marked **[D#]** and cross-referenced with [TECH_STACK.md](TECH_STACK.md).*
+*Status: v1.0 as built. Decisions are marked **[D#]** and cross-referenced with [TECH_STACK.md](TECH_STACK.md); the wire format is specified in [PROTOCOL.md](PROTOCOL.md); real failures and their fixes are in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).*
 
 ## 1. Purpose
 
-Let an iPhone display and drive `tmux` sessions that live on the user's Mac, using only the local Wi-Fi. The phone must feel like "another terminal of the Mac", not a remote shell: the same pane the Mac's terminals see is what the phone renders, with full tmux history/scrollback semantics preserved.
+Let an iPhone display and drive `tmux` sessions that live on the user's Mac, over the local network or Tailscale. The phone must feel like "another terminal of the Mac", not a remote shell: the same pane the Mac's terminals see is what the phone renders, with tmux's own history/scrollback semantics preserved.
 
 ## 2. Goals / non-goals
 
 **Goals (v1):**
-- Attach to existing tmux sessions; create/detach/destroy from the phone
-- Full ANSI rendering (colors, 256/TrueColor, cursor, resize) with low perceived latency on LAN
-- Survive: Wi-Fi drop + app background/foreground, Mac sleep/wake, tmux server restart
-- One small, self-contained Mac agent; zero system-level installs beyond `tmux`
+- Attach to existing tmux sessions; create/rename/kill sessions and windows from the phone
+- Full ANSI rendering (256/TrueColor, cursor, resize, alternate screen, mouse reporting) with low perceived latency
+- Survive Wi-Fi drops, app background/foreground, Mac sleep/wake, tmux server restart — and re-attach without a blank screen
+- A Mac app anyone can install: menu bar, pairing by QR, launch at login; plus the same agent as a CLI
+- Zero system-level installs beyond `tmux`
 
-**Non-goals (v1):**
-- Working outside the LAN (VPN/Tailscale) — the protocol is LAN-friendly but not its job in v1
-- iPad layout, multitasking, multiple Macs, per-client tmux panes (phone sees sessions, like an attach)
-- File transfer, SFTP, shell-on-phone
+**Non-goals (v1):** iPad layout, multiple Macs at once, per-pane view in multi-pane windows (the active pane wins), file transfer, TLS (see D7).
 
 ## 3. System overview
 
 ```
-  iPhone — PocketTmux.app (Swift, SwiftUI)            Mac
-┌──────────────────────────────────────┐               ┌──────────────────────────────────────────────┐
-│ UI layer (SwiftUI)                       │               │ Agent (macOS daemon, Swift)                   │
-│   Connection screen · Session list         │               │   ws://<mac>:7681  (WebSocket server)            │
-│ Terminal layer                                   │   Wi-Fi LAN    │   ├─ Protocol: parse/emit JSON frames         │
-│   TerminalView — SwiftTerm (VT100/xterm)     │  ◀────────────▶  │   ├─ tmux bridge: control mode (tmux -CC)     │
-│ Transport layer                                  │   ws (v1)      │   │    sessions/windows/panes → frames      │
-│   WebSocket client (URLSessionWebSocketTask) │  (SSH v2)    │   └─ Auth: token · Config: port/token          │
-└──────────────────────────────────────┘               └───────────────┬──────────────────────────────┘
-                                                                                  │ control-mode channel
-                                                                                  ▼
-                                                              ┌──────────────────────────────────────┐
-                                                              │ tmux server — source of truth            │
-                                                              │  sessions → windows → panes → PTY → shell │
-                                                              │  (Mac's own terminals attach here too)    │
-                                                              └────────────────────────────────────────┘
+ iPhone — PocketTmux.app                                  Mac
+┌──────────────────────────────────┐                     ┌──────────────────────────────────────────────┐
+│ SwiftUI                          │                     │ PocketTmux.app (menu bar)  ·  pockettmuxd    │
+│  Macs · Sessions · Terminal      │   Wi-Fi / Tailscale │   ┌────────── PocketTmuxAgent ──────────┐    │
+│ TerminalView (SwiftTerm)         │ ◀───── ws v2 ─────▶ │   │ AgentServer  NWListener + Bonjour    │    │
+│ AgentClient (URLSessionWebSocket)│                     │   │ AgentConnection  auth · dispatch     │    │
+│ BonjourBrowser · ProfileStore    │                     │   │ TmuxControl  tmux -CC on a pty       │    │
+└──────────────────────────────────┘                     │   │ TmuxRunner   short tmux subprocesses │    │
+             ▲                                           │   └───────────────┬──────────────────────┘    │
+             │  PocketTmuxKit: WireCodec · TmuxControlParser · TmuxFormats · PairingPayload             │
+             └────────────────────────── shared Swift package ──────────────┼──────────────────────────┘
+                                                                            ▼
+                                                        ┌──────────────────────────────────────┐
+                                                        │ tmux server — source of truth        │
+                                                        │ sessions → windows → panes → PTY     │
+                                                        │ (the Mac's own terminals attach too) │
+                                                        └──────────────────────────────────────┘
 ```
 
-**Component table**
+| Component | Where | Responsibility |
+|---|---|---|
+| `PocketTmuxKit` | `App/PocketTmuxKit/Sources/PocketTmuxKit` | Protocol v2 codec, control-mode line parser, `-F` format parsers, name validation, pairing URL |
+| `PocketTmuxAgent` | `…/Sources/PocketTmuxAgent` | `AgentServer` (WebSocket listener, Bonjour, snapshot for UIs, sleep assertion), `AgentConnection` (per phone: auth, command dispatch, 16 ms output coalescing), `TmuxControl` (one `tmux -CC` per attached phone), `TmuxRunner` (list/create/kill/rename, pane state, capture, paste), `ScreenPrimer`, `TokenStore`, `AgentLog`, `HostInfo` |
+| PocketTmux for Mac | `App/macOS` | Hosts an `AgentServer`; menu-bar panel, pairing window, settings, log; launch at login |
+| `pockettmuxd` | `App/Daemon` | Same `AgentServer` behind flags; for headless Macs, scripts and CI |
+| PocketTmux for iPhone | `App/iOS` | Profiles (Keychain), Bonjour browsing, QR/deep-link pairing, sessions, windows, terminal (SwiftTerm), reconnect |
 
-| Component | Side | Technology (see TECH_STACK) | Responsibility |
-|---|---|---|---|
-| PocketTmux app | iPhone | SwiftUI, Swift | UX, settings, session list, input capture |
-| TerminalView | iPhone | SwiftTerm (native terminal engine) | Parse ANSI/VT sequences → screen grid → draw |
-| Transport (client) | iPhone | URLSessionWebSocketTask (stdlib) | Frame encode/decode, send/recv, reconnect backoff |
-| Agent | Mac | Swift + SwiftNIO (WebSocket server) | LAN endpoint; protocol; owns the tmux channel; auth |
-| tmux bridge | Mac | `tmux -CC` control mode | Map session/window/pane events + pane output → frames |
-| tmux server | Mac | tmux 3.7+ | Sessions/windows/panes, history, local client attach |
+**One agent process, one control client per attached phone.** Each `AgentConnection` owns its own `TmuxControl`; two phones on the same Mac are two tmux clients, which is exactly tmux's multi-attach model.
 
 ## 4. Request flow
 
-Terminology: **frame** = one JSON message over the WebSocket (envelope in §5). **Screen state** = the visible grid of the focused pane (plus scrollback), owned by tmux.
+Terminology: **frame** = one JSON message over the WebSocket (PROTOCOL §1). **Screen state** = the visible grid of the active pane (plus scrollback), owned by tmux.
 
-### 4.1 First attach (app launch → visible pane)
-
-```
-Phone                              Agent                            tmux
-  │ 1. app launch: read stored host:port + token (Keychain)    │
-  │ 2. ws connect ws://host:7681 ─────────────▶                 │
-  │ 3. hello {v, caps, auth:token} ────────────▶                │
-  │ 4. ◀────────────────── hello.ack {agent:"0.1", tmux:"3.7c", caps} │
-  │ 5. session.list {} ─────────────────────────────────▶  list-sessions
-  │ 6. ◀──────────── session.list {sessions:[{id:"$1",name:"work",attached:2}]} │
-  │ 7. user taps "work" → session.attach {id:"$1"} ──────────▶  attach (control client)
-  │ 8. ◀────────── screen {mode:"reset", data:"<full pane, ANSI>"}  (first full paint)
-  │ 9. TerminalView writes the reset buffer → renders; status "Connected"
-  │    (tmux events: sessions-changed/window-… → session.changed frames keep the list fresh)
-```
-
-### 4.2 Keypress (phone input → shell in the Mac pane)
+### 4.1 Pairing (once per Mac)
 
 ```
- 1.  User taps a key (virtual keyboard) or uses a hardware keyboard.
- 2.  SwiftUI/UIView key event → Transport.onKey → build frame:
-       {"v":1,"id":42,"type":"input","payload":{"data":"h"}}        // printable
-       {"v":1,"id":43,"type":"input","payload":{"data":"\r"}}         // enter
-       {"v":1,"id":44,"type":"input","payload":{"data":"\u001b[A"}}       // up arrow
- 3.  URLSessionWebSocketTask.send(.string(frame)) → Wi-Fi → agent.
- 4.  Agent decodes; the tmux bridge sends the key to the *active pane*:
-       tmux send-keys -t %7 h            // or, in a persistent control channel, the equivalent write
- 5.  The shell/program in the pane receives the key (tmux behaves exactly as for a local client).
- 6.  Paste: "paste" {data, bracketed:true} → tmux bracketed-paste semantics (no per-key storms).
+Mac app: Pair iPhone…  →  QR = pockettmux://pair?host=100.67.189.40&port=7682&token=…&name=MacBook
+Phone: Macs → + → Scan   →  ProfileStore.save(profile)  →  connect
+   (same Wi-Fi: the Mac also appears under NEARBY MACS via Bonjour; tap Pair to prefill host/port)
 ```
 
-### 4.3 Screen update (pane output → phone render)
+### 4.2 Attach (tap a session → visible pane)
 
 ```
- 1.  The program in the pane prints (or the cursor moves, or vim redraws).
- 2.  tmux (control mode) streams the change to the control client:
-       %output %7 <new/changed lines, with octal-escaped control chars>
-     (event-driven — no polling; this is why control mode is chosen over capture-pane polling [D4])
- 3.  Agent wraps: screen {session:"$1", pane:"%7", mode:"update", data:"<ANSI delta>"} → WebSocket.
- 4.  Phone Transport receives → decodes → hands ANSI bytes to TerminalView.
- 5.  SwiftTerm parses (SGR colors, cursor moves, scroll, alt-screen…) and updates its grid.
- 6.  SwiftUI/UIKit renders the changed rows; user sees the output (typical LAN latency ≈ single-digit ms).
+Phone                                   Agent                                   tmux
+ │ ws connect ws://host:7682/ws ──────▶ │                                        │
+ │ hello{v:2,auth,client} ────────────▶ │ token ok → hello.ack{host,caps}        │
+ │ session.list ──────────────────────▶ │ tmux list-sessions -F … ──────────────▶│
+ │ ◀── session.list{sessions}           │                                        │
+ │ session.attach{id:$1,cols:45,rows:27}▶│ forkpty: tmux -CC attach -t $1 ──────▶│
+ │                                      │ ◀── %session-changed $1 work           │
+ │                                      │ resize-window -x45 -y27 + window-size manual (pin)
+ │                                      │ display-message -p '#{pane_id}…cursor…' · capture-pane -p -e
+ │ ◀── session.attached{session,windows}│                                        │
+ │ ◀── screen{reset, primed frame}      │  (ScreenPrimer: alt/mouse/DECCKM escapes + content + cursor)
+ │ ◀── screen{update,…} ◀── … ◀──────── │ ◀── %output %7 …  (only the active pane's output is forwarded)
 ```
 
-### 4.4 Resize (phone rotation / split view → pane size)
+### 4.3 Keypress
 
 ```
- 1.  UI size changes (rotation, iPad multitasking, app resize).
- 2.  Terminal layer computes new cols/rows from view size ÷ cell metrics.
- 3.  App sends resize {cols,rows}; agent runs tmux resize-pane -t %7 -x Cols -y Rows
-     (and, per the control-mode docs, keeps the control client's own size in sync via refresh-client -C so future frames are coherent).
- 4.  tmux reflows the pane (SIGWINCH to the shell); the next screen frames reflect the new size.
+SwiftTerm.send(bytes) → AgentClient.sendInput → input{data:base64}
+   → AgentConnection → TmuxControl.pendingInput (flushed every 16 ms)
+   → "send-keys -H -t %7 1b 5b 41" on the control client's stdin (one hex per key, 128 keys per line)
+   → the program in the pane sees exactly what a local keyboard would send
 ```
 
-### 4.5 Reconnect (Wi-Fi drop → back online → seamless resume)
+Paste is separate (`paste{text}` → `load-buffer` + `paste-buffer -p`) so tmux applies bracketed paste iff the pane asked for it.
+
+### 4.4 Windows
 
 ```
- 1.  Wi-Fi drops / Mac sleeps; ws ping fails or socket errors → Transport marks "Reconnecting…".
- 2.  Exponential backoff with jitter (e.g. 1s → 2s → 4s → … cap 30s); the TerminalView keeps the last frame (no blank screen).
- 3.  Network returns: ws reconnect + hello (token from Keychain) → hello.ack.
- 4.  Agent re-attaches the control client to the session (tmux was still running; the pane state is in tmux, not in the phone).
- 5.  Agent sends screen {mode:"reset", data:"<full current pane>"} → phone does a full repaint → resumes live updates.
- 6.  (If the *tmux server* died: session.changed {destroyed} frames; app shows "Session ended"; user re-creates/attaches.)
+window.select{@2} → select-window -t @2 → %session-window-changed $1 @2
+   → TmuxControl.showActivePane(): pin @2 to the phone size, re-read pane state, capture, screen{reset}
+   → (60 ms later) windows{sessionID,windows} from list-windows
+```
+The same path runs when the *Mac user* switches windows or panes (`%window-pane-changed`), so both clients always look at the same pane.
+
+### 4.5 Resize
+
+Phone `sizeChanged` → `resize{cols,rows}` (agent debounces 250 ms) → `resize-window -t @w -x -y` + `refresh-client -C WxH`. The window stays pinned (`window-size manual`) for the duration of the attach and is unpinned on detach so the Mac client re-asserts its size (TROUBLESHOOTING §2).
+
+### 4.6 Reconnect
+
+```
+socket error / no pong for 15 s → status Reconnecting… (the last frame stays on screen)
+backoff 1s·2s·4s… ≤30s ±20% jitter → ws connect → hello → hello.ack
+→ AgentClient re-sends session.attach{id, cols, rows} → screen{reset} full repaint → live again
+tmux server died meanwhile → session.detached{sessionKilled} → "Session ended on the Mac" → Sessions
 ```
 
-### 4.6 Session lifecycle (multi-client note)
+### 4.7 Session lifecycle
 
-- `session.create {name, cwd?, cmd?}` → agent runs `tmux new-session -d -n main [cmd]` → `session.created`; user can then attach.
-- `session.detach` → control client leaves; the session keeps running (other clients — including the Mac's own `tmux attach` — are unaffected).
-- `session.destroy {id}` → `tmux kill-session` → `session.destroyed`.
-- **Multiple clients are a tmux native feature**: the Mac terminal and the phone can attach to the *same session simultaneously* (like tmux's own multi-attach). v1 assumes one phone client + however many local Mac clients; contention rules (e.g. two phones driving one pane) are documented as a known simplification, not a bug.
+`session.create/rename/kill` are short `tmux` subprocesses; every change (from the phone, the Mac app, or a terminal on the Mac via `%sessions-changed`) results in a `session.list` push to each connected phone and an `onSessionsChanged` callback to the Mac app. Detaching leaves the session running for the Mac's own clients.
 
-## 5. Transport protocol (v1)
+## 5. Transport protocol
 
-**Framing.** WebSocket **text** frames, one JSON object per frame. (Binary frames are reserved for a future compact protocol; v1 is JSON-first for debuggability on the LAN.)
+Specified in [PROTOCOL.md](PROTOCOL.md). Design notes:
 
-**Envelope.**
-
-```json
-{"v": 1, "id": 42, "type": "input", "ts": 1727760000.123, "payload": {"data": "h"}}
-```
-
-- `v` — protocol version (1).
-- `id` — monotonically increasing per sender; the receiver echoes it in responses so requests/correlate (e.g. `session.list` → its response shares the id).
-- `type` — message name (tables below).
-- `ts` — sender timestamp (seconds); used for latency stats, not for correctness.
-- `payload` — type-specific object.
-
-**Client (phone) → server (agent)**
-
-| type | payload | Meaning |
-|---|---|---|
-| `hello` | `{v, caps:[...], auth:"<token>"}` | First frame after ws connect; starts auth + capability negotiation |
-| `session.list` | `{}` | Ask for current sessions |
-| `session.create` | `{name, cwd?, cmd?}` | Detached new session |
-| `session.attach` | `{id}` | Attach the control client (→ first `screen` reset) |
-| `session.detach` | `{id}` | Detach |
-| `session.destroy` | `{id}` | Kill |
-| `input` | `{data:"<string>"}` | Keystroke(s): printable char, or escape (`\r`, `\u001b[A`, `\u0001`…) |
-| `paste` | `{data:"<text>", bracketed:true}` | Paste with tmux bracketed-paste semantics |
-| `resize` | `{cols, rows}` | Set pane size |
-| `ping` | `{}` | Keepalive / latency probe |
-
-**Server (agent) → client (phone)**
-
-| type | payload | Meaning |
-|---|---|---|
-| `hello.ack` | `{agent:"0.1.0", tmux:"3.7c", caps:[...]}` | Auth OK + versions |
-| `session.list` | `{sessions:[{id,name,attached,created}]}` | Response to list |
-| `session.created` / `session.changed` / `session.destroyed` | `{session:{id,name,...}}` | tmux events (new session, renamed/resized, killed) → keep the phone's list live |
-| `screen` | `{session, pane, mode:"reset"|"update", data:"<ANSI>"}` | Full pane reset (attach, reconnect, major redraw) or incremental update (live output) |
-| `exit` | `{code, signal?}` | The program in the pane exited (shell quit) |
-| `pong` | `{}` | Response to ping |
-| `error` | `{code, message}` | Protocol/auth/tmux error (e.g. bad token, unknown session) |
-
-**Design notes.**
-
-- **tmux owns the screen, not the client.** The phone re-parses ANSI that represents the pane; it does not independently model the "real" terminal. Scrollback/scroll on the phone is a *view* (a cache of what tmux showed); the tmux history is the truth. This keeps one source of screen truth and makes "two clients, same pane" sane.
-- **Why control mode (`-CC`) over `capture-pane` polling.** Control mode is tmux's own programmatic-client interface: it streams pane output (`%output`), session/window/pane lifecycle events, and handles the control client's sizing (`refresh-client -C`). It is event-driven (no 10–20 Hz screen scraping), preserves exactly what the pane produced (with octal-escaped control characters), and is what IDE/integration clients use. `send-keys` + `capture-pane` polling is the simpler fallback (and remains the reference for tmux < 3.7 or minimal agents), but it wastes CPU and can tear mid-frame.
-- **Backpressure & coalescing.** A fast `yes`/`cat` can out-pace the phone. The agent coalesces consecutive `screen` updates into one frame per flush interval (target ≈ one display frame, ~16 ms) and applies a bounded outbound queue that drops the *oldest* coalesced frame when over budget (the next frame still converges, since updates are diffs toward the same tmux state). The phone side applies frames in order; a `reset` always wins.
-- **Auth (v1).** The agent generates/holds a random **token** (shown in its log/config on first run; stored in the Mac keychain). The phone's first-run flow is *paste the token once* → Keychain. Subsequent `hello` carry it. This is deliberately LAN-simple: trust = same Wi-Fi + token. (Documented simplification: no TLS in v1 — see failure modes.)
+- **tmux owns the screen, not the client.** The phone re-parses ANSI that represents the pane; it does not model the "real" terminal. On-phone scrollback is a view cache; tmux history is the truth.
+- **Control mode over `capture-pane` polling [D4].** Event-driven `%output` + lifecycle events, stable ids, no torn frames. The one thing control mode does *not* do — the initial paint — the agent does with `capture-pane`, as the tmux wiki suggests and iTerm2 does.
+- **Coalescing & backpressure.** Pane output is batched into ~16 ms `screen{update}` frames; above 512 KiB the buffer is flushed immediately. A `reset` frame drops anything still buffered (it would predate the repaint).
+- **Auth.** One random 32-char token per Mac in `~/.pockettmux/token` (0600), compared in constant time, presented in the first frame; wrong → `error{auth}` and close. Trust = same network + token (D7).
+- **Forward compatibility.** Unknown frame types are ignored; `hello.v` is strict.
 
 ## 6. Key technical decisions & alternatives
 
-| # | Decision | Choice | Why (2026-09 baseline) | Alternative considered | Revisit when |
+| # | Decision | Choice | Why | Alternative considered | Revisit when |
 |---|---|---|---|---|---|
-| D1 | Terminal engine (phone) | **SwiftTerm** (v1.19.0, MIT, Swift) | Native VT100/xterm engine with a UIKit `TerminalView`; battle-tested in shipping SSH clients (Secure Shellfish, La Terminal, CodeEdit); active (release 2026-08-18; push 2026-08-31); SPM; optional Metal GPU renderer for scale | xterm.js in a WKWebView (@xterm/xterm 6.0.0, MIT) | Ship a PWA / web shell instead of native; or the app becomes "mostly a webview" |
-| D2 | Transport | **WebSocket** (phone: URLSessionWebSocketTask; agent: SwiftNIO + NIOWebSocket) | Zero-config over LAN; trivially debuggable (curl/wscat/browser); same stack lets the P0 PWA and the native app share the agent; stdlib client on iOS | SSH (libssh2 1.11.1 / BSD; or swift-nio-ssh) | Need encryption without a LAN trust assumption; want to reuse an existing sshd; agent becomes "just another sshd target" |
-| D3 | tmux on the Mac | **tmux 3.7c** (MIT) | The user's existing multiplexer; sessions/windows/panes + history are the source of truth; huge ecosystem; brew-managed; 3.7 is the current stable line (released 2026-08) | GNU screen; a plain shell per session | tmux falls short of a needed feature (rare) |
-| D4 | tmux bridge | **Control mode (`tmux -CC`)** | Event-driven `%output` + lifecycle events; designed for programmatic/IDE clients; avoids `capture-pane` polling and torn frames; stable IDs (`$session`, `@window`, `%pane`); sizing via `refresh-client -C` | `send-keys` + `capture-pane` polling loop | tmux too old for the control features used; a minimal agent that only needs input + periodic snapshots |
-| D5 | Agent implementation | **Swift + SwiftNIO** (macOS daemon; menu-bar app later) | One language across agent + app; NIO is Apple's production networking stack (NIOWebSocket included; swift-nio 2.102.0, 2026-09); strong concurrency model for a long-lived socket; can grow (TLS, multiple clients) without a rewrite | C single-binary (gotty/ttyd-style) or Go agent | The agent gets big enough that a dedicated runtime is worth it; or we want a zero-dependency static binary |
-| D6 | Phasing: PWA vs native | **P0 = ttyd + xterm.js PWA; P1+ = native Swift app** | Validates the whole loop (LAN + tmux + terminal + transport) in ~2 minutes with zero native code; gives an instant usable artifact; the native app then replaces the webview with SwiftTerm while keeping the same agent/protocol | Go straight to the native app | The P0 path proves something the native path wouldn't (e.g. protocol shape) — by then the protocol is already locked |
-| D7 | Agent auth | **Random token, LAN-only** (no TLS in v1) | Simplest secure-enough for a single-user home LAN; token in phone Keychain + Mac keychain; documented as a simplification | TLS (self-signed or LAN CA) / SSH tunneling | Multi-user LANs; carrying secrets that outlive the Wi-Fi; moving off the home network |
+| D1 | Terminal engine (phone) | **SwiftTerm** 1.x (MIT) | Native VT100/xterm engine with a UIKit `TerminalView`, accessory keyboard, mouse reporting, alt screen; shipping in several SSH clients | xterm.js in a WKWebView | The app becomes "mostly a webview" |
+| D2 | Transport | **WebSocket**, JSON text frames (phone: `URLSessionWebSocketTask`; agent: `NWListener` + `NWProtocolWebSocket`) | Zero-config on LAN/Tailscale; debuggable with a 100-line Python client (`scripts/check-attach-prime.py`); stdlib on both ends | SSH (libssh2 / swift-nio-ssh) | Encryption without the LAN trust assumption (v1.2 TLS is the planned path) |
+| D3 | tmux | **tmux 3.7c** | The user's multiplexer; sessions/windows/panes/history are the truth; stable ids | GNU screen; a bespoke multiplexer | Never |
+| D4 | tmux bridge | **Control mode (`tmux -CC`)** on a pty + `capture-pane` priming | Event-driven; exact bytes; sizing via `refresh-client -C` | `send-keys` + `capture-pane` polling | tmux too old for the control features |
+| D5 | Agent implementation | **Swift + Network.framework**, one library (`PocketTmuxAgent`) hosted by a menu-bar app *and* a CLI | Zero third-party deps; one language across the repo; `NWListener` gives WebSocket + Bonjour for free; the same binary logic for GUI and headless | SwiftNIO (planned in v0.1) — more moving parts for one socket; Go/C agent — second language | The agent needs TLS termination or thousands of clients |
+| D6 | Repo layout | One repo, XcodeGen project, **local SPM package** for shared code | Protocol/parsers cannot drift between the two apps; `swift test` runs the package tests in seconds without a simulator | Copying sources into each target (v0.1 did this) | Never |
+| D7 | Agent auth | **Random token, no TLS in v1** | Simplest secure-enough for a single-user home network / Tailscale (which is already encrypted); token in `~/.pockettmux/token` and the phone's Keychain | TLS with a pinned self-signed cert | v1.2 (planned): pairing payload carries the cert fingerprint |
+| D8 | Discovery | **Bonjour** (`_pockettmux._tcp`) + QR/deep link | Same-Wi-Fi Macs appear by themselves; the QR covers Tailscale and first-time token transfer | Manual IP only (v0.1) | Never |
+| D9 | Mac app form | **Menu-bar app** (`MenuBarExtra`, `LSUIElement`), not sandboxed | The agent must exec the user's `tmux` and open a pty — impossible in the App Sandbox; a menu-bar app is the natural home for an always-on agent | Sandboxed App Store app with an XPC helper | App Store distribution becomes a goal (v2) |
 
 ## 7. Failure modes & edge cases
 
-| # | Failure / edge case | v1 behavior | Mitigation / design response |
+| # | Failure / edge case | v1 behaviour | Mitigation / design response |
 |---|---|---|---|
-| F1 | **Mac sleeps** (lid close / idle) | Agent stops answering; phone shows Reconnecting | Agent takes an `IOPMAssignment`/`caffeinate`-style assertion while a client is attached; docs recommend "Prevent sleep when disconnected from power" for headless use |
-| F2 | **Router AP/client isolation** | Mac and phone can't see each other even on the same SSID | Quick-start tells the user to disable "AP isolation / client isolation"; the P0 test (open `http://mac-ip:7681`) doubles as a diagnosis |
-| F3 | **mDNS / 2.4 GHz vs 5 GHz** | `.local` names may not resolve across bands | v1 uses plain **IP + port** (the agent prints a QR/code with its address on startup); Bonjour is a later nicety, not a dependency |
-| F4 | **App backgrounded** (lock screen) | Socket may be torn down by iOS; tmux keeps running | On foreground: Transport reconnects + `screen` reset (flow 4.5); long-term sessions are tmux's job, the phone is a view |
-| F5 | **tmux server restart** (Mac reboot, `kill-server`) | Attached sessions vanish mid-session | `session.destroyed` frames update the list; app shows "Session ended — reattach"; agent re-spawns its control client on demand (the server is the truth, not the agent) |
-| F6 | **Two clients drive one pane** (phone + Mac terminal attached) | Both see the same output; inputs interleave as tmux delivers them | Documented as a *feature* (tmux multi-attach), not a race; v1 doesn't add per-client input locks (a v2 concern if it bites) |
-| F7 | **Control-mode output isn't always valid UTF-8** (octal-escaped control chars) | Naive string decoding can garble | The agent decodes the octal escapes into bytes *before* framing; the phone's terminal engine (SwiftTerm) consumes bytes, not "nice strings" — the protocol carries `data` as an escape/byte-safe string |
-| F8 | **Fast output floods the socket** (`cat bigfile`, `yes`) | Phone lags or drops frames | Backpressure/coalescing (§5): bounded queue, drop-oldest, 16 ms flush; a `reset` frame always re-converges the screen |
-| F9 | **Token leaks on the LAN** | Another device could impersonate the phone | v1: single-user home LAN + random high-entropy token (documented simplification, D7); v2: per-client tokens / optional TLS |
-| F10 | **Protocol version drift** (old phone, new agent) | Unknown frame types | `hello`/`hello.ack` exchange `caps`; each side ignores unknown *types* gracefully and errors only on malformed envelopes; `v` lets a future binary protocol coexist |
+| F1 | **Mac sleeps** | Agent stops answering; phone shows Reconnecting… | The agent holds a `PreventUserIdleSystemSleep` assertion while a phone is attached (Setting: Keep Mac awake); on wake the phone reconnects and re-attaches |
+| F2 | **AP / client isolation** | Mac and phone can't see each other on the same SSID | Bonjour finds nothing → the Macs screen says so; Tailscale bypasses it entirely |
+| F3 | **mDNS doesn't cross networks / Tailscale** | Nearby Macs list is empty | QR/link pairing carries the address; `HostInfo.addresses()` lists Tailscale first |
+| F4 | **App backgrounded** | iOS tears the socket down | On foreground: reconnect immediately, `session.attach` again, full repaint |
+| F5 | **tmux server restart / session killed on the Mac** | `%exit` from the control client | Agent checks `list-sessions`: gone → `session.detached{sessionKilled}` → phone shows "Session ended on the Mac" and returns to Sessions; otherwise `controlExited` → phone retries once |
+| F6 | **Two clients drive one pane** | Both see the same output; input interleaves | tmux multi-attach is the feature; no per-client lock in v1 (ARCHITECTURE §8 Q3) |
+| F7 | **Control-mode output isn't valid UTF-8** | Garbled screen if treated as text | Octal escapes decoded to bytes; `screen.data` is base64 |
+| F8 | **Output floods** (`yes`, `cat big`) | Phone lags | 16 ms coalescing, 512 KiB immediate flush, `reset` on re-attach re-converges |
+| F9 | **Token leaks on the network** | Another device could impersonate the phone | 32-char random token; Regenerate in Settings; TLS + per-device tokens planned (v1.2) |
+| F10 | **Protocol drift** | Old app vs new agent | `hello.v` strict → clear "update the app" error; unknown frame types ignored |
+| F11 | **Port in use / tmux missing** | Agent can't start | Surfaced in the Mac app header with Retry; tmux path overridable in Settings › Advanced |
+| F12 | **Multi-pane window** | Only the active pane is shown; other panes' output is dropped | Documented simplification; pane picker planned (v1.1). Pane switches on the Mac re-prime the phone |
+| F13 | **Duplicate attach** (row tap + screen appear) | Would respawn the control client → `%exit` → "session ended" | Deduped on both ends (TROUBLESHOOTING §1) |
 
 ## 8. Open questions
 
-1. **Sixel / graphics on the phone** — SwiftTerm supports Sixel & imgcat/Kitty; do we render them in v1 or pass them through invisibly?
-2. ~~**tmux mouse passthrough**~~ — **resolved in v1.** On attach the agent *primes* the phone's emulator with the pane's real state, because `tmux -CC` replays nothing that predates the control client (no `?1049h`, no `?1006h`, no content): `#{alternate_on}`, `#{mouse_*_flag}`, `#{keypad_cursor_flag}` become the equivalent escapes and `capture-pane -p -e` becomes the first frame, with scrollback for normal-buffer panes. From then on SwiftTerm's own state is trustworthy, and a touch-drag on the alternate screen becomes SGR wheel events (`ESC[<64/65;col;rowM`) when the app reads the mouse (pi `fullscreen`, Claude Code, opencode) or cursor up/down keys when it doesn't (less/man/vim — xterm's `alternateScroll`), injected via `send-keys -H`. See `TmuxControl.primeScreen`, `TerminalCoordinator.sendScroll`, TROUBLESHOOTING §3.
-3. **iCloud/KVS or a local config store** for the agent address (so the phone remembers *which* Mac, not just the token)?
-4. **Bonjour/mDNS discovery** — nice-to-have auto-configure; v1 is manual IP.
-5. **Binary protocol** — JSON v1 is debuggable; a compact binary v2 for high-throughput output is plausible. Keep the envelope.
-6. **Per-client input locks** — if two clients drive one pane, is a "typing lock" a v2 feature or unnecessary?
+1. **Sixel / graphics** — SwiftTerm can render Sixel/imgcat; pass-through vs render is undecided.
+2. **Binary protocol** — JSON v2 is debuggable; a compact binary `screen` frame is plausible for very chatty panes. Keep the envelope.
+3. **Per-client input locks** — if two clients typing into one pane ever bites, add a "typing" lease.
+4. **Notifications** — bell/activity → local notification while backgrounded (v1.1): agent-side `monitor-activity` vs client-side detection.
 
 ## 9. References
 
-- tmux Control Mode — <https://github.com/tmux/tmux/wiki/Control-Mode> (`-C` vs `-CC`, `%output`, `refresh-client -C`)
+- tmux Control Mode — <https://github.com/tmux/tmux/wiki/Control-Mode>
 - tmux 3.7c — <https://github.com/tmux/tmux/releases>
-- SwiftTerm (iOS `TerminalView`, engine, Metal, OSC 8, Sixel) — <https://github.com/migueldeicaza/SwiftTerm> · API docs <https://migueldeicaza.github.io/SwiftTerm/documentation/swiftterm/>
-- xterm.js (`@xterm/xterm`, add-ons) — <https://xtermjs.org> · <https://github.com/xtermjs/xterm.js>
-- SwiftNIO / NIOWebSocket — <https://github.com/apple/swift-nio>
-- libssh2 — <https://github.com/libssh2/libssh2> · swift-nio-ssh — <https://github.com/apple/swift-nio-ssh>
+- SwiftTerm — <https://github.com/migueldeicaza/SwiftTerm>
+- Network.framework `NWListener` / `NWProtocolWebSocket` — Apple Developer documentation
+- iTerm2 tmux integration (priming with `capture-pane`, `window-size manual`) — <https://iterm2.com/documentation-tmux-integration.html>

@@ -9,6 +9,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Every xcodebuild needs -skipPackagePluginValidation: SwiftTerm's build-tool
+# plugin fails its "Validate plug-in" step on Xcode 26 before compiling
+# anything (see CLAUDE.md). It is safe: the plugin only emits build-info constants.
+
 jobs:
   lint:
     name: SwiftLint
@@ -20,8 +24,18 @@ jobs:
       - name: Lint
         run: swiftlint lint --strict
 
-  build-and-test:
-    name: Build & Test (iOS Simulator)
+  package:
+    name: PocketTmuxKit (swift test)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: swift --version
+      - name: Test package
+        run: swift test --package-path App/PocketTmuxKit
+
+  ios:
+    name: iPhone app (build & test, simulator)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -44,11 +58,54 @@ jobs:
             -project PocketTmux.xcodeproj \
             -scheme PocketTmux \
             -destination "platform=iOS Simulator,name=$SIM" \
+            -derivedDataPath build/Sim \
             -resultBundlePath build/test/PocketTmux.xcresult \
+            -skipPackagePluginValidation \
             test
       - name: Upload test results (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: ios-test-results
           path: App/build/test/PocketTmux.xcresult
+
+  mac:
+    name: Mac app + pockettmuxd (build)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: App
+        run: xcodegen generate
+      - name: Show toolchain
+        run: xcodebuild -version
+      - name: Build PocketTmux for Mac
+        working-directory: App
+        run: |
+          xcodebuild build \
+            -project PocketTmux.xcodeproj \
+            -scheme PocketTmuxMac \
+            -destination 'platform=macOS' \
+            -derivedDataPath build/Mac \
+            -resultBundlePath build/test/PocketTmuxMac.xcresult \
+            -skipPackagePluginValidation \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO
+      - name: Build pockettmuxd
+        working-directory: App
+        run: |
+          xcodebuild build \
+            -project PocketTmux.xcodeproj \
+            -scheme pockettmuxd \
+            -destination 'platform=macOS' \
+            -derivedDataPath build/Daemon \
+            -resultBundlePath build/test/pockettmuxd.xcresult \
+            -skipPackagePluginValidation \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO
+      - name: Upload build results (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-build-results
+          path: App/build/test/*.xcresult

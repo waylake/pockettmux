@@ -1,5 +1,12 @@
 # PocketTmux — XcodeGen project spec (source of truth for the .xcodeproj).
 # Regenerate with: xcodegen generate   (see CONTRIBUTING.md)
+#
+# Targets
+#   PocketTmux      iPhone app        (iOS/)      SwiftUI + SwiftTerm + PocketTmuxKit
+#   PocketTmuxMac   Mac menu-bar app  (macOS/)    SwiftUI + PocketTmuxAgent   → product "PocketTmux.app"
+#   pockettmuxd     headless agent    (Daemon/)   PocketTmuxAgent
+#   PocketTmuxTests iOS unit tests    (iOSTests/)
+# Shared code lives in the local Swift package PocketTmuxKit/ (tested with `swift test`).
 name: PocketTmux
 options:
   bundleIdPrefix: com.waylake
@@ -7,32 +14,44 @@ options:
     iOS: "16.0"
     macOS: "14.0"
   createIntermediateGroups: true
+  xcodeVersion: "26.2"
 settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: minimal
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
 packages:
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm.git
     from: 1.19.0
+  PocketTmuxKit:
+    path: PocketTmuxKit
 targets:
   PocketTmux:
     type: application
     platform: iOS
     sources:
-      - PocketTmux
+      - iOS
     dependencies:
       - package: SwiftTerm
+      - package: PocketTmuxKit
+        product: PocketTmuxKit
     info:
-      path: PocketTmux/Info.plist
+      path: iOS/Info.plist
       properties:
+        CFBundleDisplayName: PocketTmux
         UILaunchScreen: {}
         UIRequiresFullScreen: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
-        NSCameraUsageDescription: 'Scan the pairing QR shown on your Mac to connect automatically.'
-        # v1 is LAN/Tailscale + token (no TLS — documented simplification,
+        NSCameraUsageDescription: 'Scan the pairing QR shown by PocketTmux on your Mac.'
+        NSLocalNetworkUsageDescription: 'Find Macs running PocketTmux on this network and connect to their tmux sessions.'
+        NSBonjourServices: [_pockettmux._tcp]
+        CFBundleURLTypes:
+          - CFBundleURLName: com.waylake.pockettmux.pair
+            CFBundleURLSchemes: [pockettmux]
+        # LAN/Tailscale + token (no TLS — documented simplification,
         # ARCHITECTURE F9). iOS blocks plain ws:// without this exception;
         # Tailscale's 100.64/10 is outside NSAllowsLocalNetworking's scope.
         NSAppTransportSecurity:
@@ -41,12 +60,54 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.waylake.pockettmux
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-  PocketTmuxAgent:
+        TARGETED_DEVICE_FAMILY: "1"
+  PocketTmuxMac:
+    type: application
+    platform: macOS
+    sources:
+      - macOS
+    dependencies:
+      - package: PocketTmuxKit
+        product: PocketTmuxAgent
+      - package: PocketTmuxKit
+        product: PocketTmuxKit
+    info:
+      path: macOS/Info.plist
+      properties:
+        CFBundleDisplayName: PocketTmux
+        LSUIElement: true              # menu-bar app: no Dock icon, no main window
+        LSMinimumSystemVersion: "14.0"
+        NSHumanReadableCopyright: 'MIT License'
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        # "Open in Terminal" tells Terminal.app to run `tmux attach` (NSAppleScript).
+        NSAppleEventsUsageDescription: 'PocketTmux asks Terminal to open a tmux session when you choose Open in Terminal.'
+        CFBundleURLTypes:
+          - CFBundleURLName: com.waylake.pockettmux.mac.pair
+            CFBundleURLSchemes: [pockettmux]
+    entitlements:
+      path: macOS/PocketTmuxMac.entitlements
+      properties:
+        # Not sandboxed: the agent execs the user's tmux and opens a pty.
+        com.apple.security.app-sandbox: false
+        # Hardened runtime blocks Apple Events to other apps without this.
+        com.apple.security.automation.apple-events: true
+    settings:
+      base:
+        PRODUCT_NAME: PocketTmux
+        PRODUCT_BUNDLE_IDENTIFIER: com.waylake.pockettmux.mac
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+  pockettmuxd:
     type: tool
     platform: macOS
     sources:
-      - Agent
-      - AgentCore
+      - Daemon
+    dependencies:
+      - package: PocketTmuxKit
+        product: PocketTmuxAgent
+      - package: PocketTmuxKit
+        product: PocketTmuxKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.waylake.pockettmux.agent
@@ -57,11 +118,28 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - PocketTmuxTests
-      - AgentCore
+      - iOSTests
+    dependencies:
+      - target: PocketTmux
+      - package: PocketTmuxKit
+        product: PocketTmuxKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.waylake.pockettmux.tests
         GENERATE_INFOPLIST_FILE: YES
-    dependencies:
-      - target: PocketTmux
+schemes:
+  PocketTmux:
+    build:
+      targets: { PocketTmux: all, PocketTmuxTests: [test] }
+    run: { config: Debug }
+    test: { config: Debug, targets: [PocketTmuxTests] }
+    archive: { config: Release }
+  PocketTmuxMac:
+    build:
+      targets: { PocketTmuxMac: all }
+    run: { config: Debug }
+    archive: { config: Release }
+  pockettmuxd:
+    build:
+      targets: { pockettmuxd: all }
+    run: { config: Debug }

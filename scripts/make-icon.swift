@@ -1,17 +1,47 @@
 #!/usr/bin/env swift
 // make-icon.swift — renders the PocketTmux app icon (1024×1024 PNG).
 // Design: sumi-ink background, vermilion "❯" terminal prompt + washi block
-// cursor. Run: swift scripts/make-icon.swift
+// cursor.
+//
+//   swift scripts/make-icon.swift [--mac] <out.png>
+//
+//   default  iOS: artwork fills the full square (iOS masks the corners itself)
+//   --mac    macOS: same artwork drawn at 824/1024 centred inside the standard
+//            macOS icon margins, clipped to a rounded rect (radius ≈ 185 px at
+//            1024) with transparent pixels outside — what Finder/Dock expect.
 import Foundation
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
+
+var args = Array(CommandLine.arguments.dropFirst())
+let mac = args.contains("--mac")
+args.removeAll { $0 == "--mac" }
+if args.count > 1 || args.first?.hasPrefix("-") == true {
+    FileHandle.standardError.write(Data("usage: swift scripts/make-icon.swift [--mac] <out.png>\n".utf8))
+    exit(2)
+}
+let out = URL(fileURLWithPath: args.first ?? (mac ? "AppIcon-mac-1024.png" : "AppIcon-1024.png"))
 
 let size = 1024
 let cs = CGColorSpace(name: CGColorSpace.sRGB)!
 let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8,
                     bytesPerRow: 0, space: cs,
                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+
+// Artwork is authored in a 1024-pt square. For --mac, shrink it to the
+// 824-pt macOS "icon grid" square, centred, and clip to the rounded rect.
+// Everything outside the clip stays transparent (the context starts cleared).
+let artSize: CGFloat = mac ? 824 : 1024
+let inset = (CGFloat(size) - artSize) / 2
+let artRect = CGRect(x: inset, y: inset, width: artSize, height: artSize)
+if mac {
+    let radius: CGFloat = 185           // the macOS icon corner curve at 1024 px
+    ctx.addPath(CGPath(roundedRect: artRect, cornerWidth: radius, cornerHeight: radius, transform: nil))
+    ctx.clip()
+}
+ctx.translateBy(x: inset, y: inset)
+ctx.scaleBy(x: artSize / 1024, y: artSize / 1024)
 
 // Background: vertical gradient 墨 → 藍墨
 let grad = CGGradient(colorsSpace: cs, colors: [
@@ -45,10 +75,7 @@ ctx.setFillColor(indigo)
 ctx.fill(CGRect(x: 330, y: 150, width: 506, height: 26))
 
 let img = ctx.makeImage()!
-let out = URL(fileURLWithPath: CommandLine.arguments.count > 1
-    ? CommandLine.arguments[1]
-    : "AppIcon-1024.png")
 let dest = CGImageDestinationCreateWithURL(out as CFURL, UTType.png.identifier as CFString, 1, nil)!
 CGImageDestinationAddImage(dest, img, nil)
 CGImageDestinationFinalize(dest)
-print("wrote \(out.path)")
+print("wrote \(out.path)\(mac ? " (macOS margins + rounded mask)" : "")")
