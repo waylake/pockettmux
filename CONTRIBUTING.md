@@ -125,8 +125,8 @@ CI runs the first two on every PR plus a build of `PocketTmuxMac` and `pockettmu
 ## Versioning & releases
 
 - **SemVer** (`MAJOR.MINOR.PATCH`). After 1.0, bump `MAJOR` for breaking changes to the app/protocol/agent (the wire protocol carries its own `WireProtocol.version`).
-- **Releases are tag-driven:** push `vX.Y.Z` → the [release workflow](.github/workflows/release.yml) builds the Mac app (`PocketTmux-macOS-vX.Y.Z.zip`) and `pockettmuxd` (`pockettmuxd-vX.Y.Z.tar.gz`), archives the iPhone app as an ad-hoc `.ipa` when signing is available, and opens a GitHub Release with the changelog section as notes.
-- Mac artifacts are currently **unsigned** (no Developer ID certificate in CI): first launch needs right-click → Open. iOS signing is ad-hoc/free-tier; TestFlight is a later concern.
+- **Releases are tag-driven:** push `vX.Y.Z` → the [release workflow](.github/workflows/release.yml) builds the Mac app (`PocketTmux-macOS-vX.Y.Z.zip`), `pockettmuxd` (`pockettmuxd-vX.Y.Z.tar.gz`) and the iPhone app (`PocketTmux-iOS-vX.Y.Z-unsigned.ipa`), then opens a GitHub Release with the changelog section as notes.
+- Every artifact is **unsigned** (no Developer ID certificate or provisioning profile in CI): the Mac app needs right-click → Open on first launch, and the `.ipa` must be re-signed with your own Apple ID (Sideloadly, AltStore) or replaced by an Xcode run on your device. Developer ID signing + notarization are on the v1.1 list.
 - **The changelog is part of the PR:** update [CHANGELOG.md](CHANGELOG.md) (Keep a Changelog) in the same PR that changes behavior.
 
 ## Where things live (docs)

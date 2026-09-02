@@ -109,8 +109,9 @@ bar; choose **Pair iPhone…**.
 
 ### iPhone
 
-Install the `.ipa` from [Releases](https://github.com/waylake/pockettmux/releases) (ad-hoc) or build
-and run the `PocketTmux` scheme on your device from Xcode.
+Download `PocketTmux-iOS-*-unsigned.ipa` from [Releases](https://github.com/waylake/pockettmux/releases)
+and re-sign it with your own Apple ID (Sideloadly, AltStore), or build and run the `PocketTmux`
+scheme on your device from Xcode — no paid developer account needed either way.
 
 ### Pair
 
@@ -225,7 +226,7 @@ token any time from Settings › Security; TLS with a pinned certificate and per
 ## Contributing
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, workflow, Conventional Commits and tests.
-Semantic Versioning; pushing a `vX.Y.Z` tag builds the `.ipa`, the Mac app zip and the
+Semantic Versioning; pushing a `vX.Y.Z` tag builds the unsigned `.ipa`, the Mac app zip and the
 `pockettmuxd` tarball into a GitHub Release with the [CHANGELOG](CHANGELOG.md) section as notes.
 
 [MIT](LICENSE) · built on [tmux](https://github.com/tmux/tmux) and

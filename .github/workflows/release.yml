@@ -49,10 +49,14 @@ jobs:
         run: xcodegen generate
 
       # ---------------------------------------------------------------- iOS
-      - name: Archive iPhone app (ad-hoc)
+      # No Developer ID / provisioning profile on the runner, so the archive is
+      # built unsigned and packaged as an .ipa by hand (`xcodebuild
+      # -exportArchive` insists on a signing identity). Users re-sign it with
+      # their own Apple ID (Sideloadly, AltStore, `codesign`) or build from
+      # Xcode; the Mac artifacts are unsigned for the same reason.
+      - name: Archive iPhone app (unsigned)
         id: archive
         working-directory: App
-        continue-on-error: true
         run: |
           xcodebuild \
             -project PocketTmux.xcodeproj \
@@ -61,34 +65,21 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath build/PocketTmux.xcarchive \
             -skipPackagePluginValidation \
-            archive
+            archive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
 
-      - name: Export .ipa
-        id: export
+      - name: Package .ipa
         working-directory: App
-        if: steps.archive.outcome == 'success'
-        continue-on-error: true
         run: |
-          cat > ExportOptions.plist <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>ad-hoc</string>
-          </dict>
-          </plist>
-          PLIST
-          xcodebuild -exportArchive \
-            -archivePath build/PocketTmux.xcarchive \
-            -exportOptionsPlist ExportOptions.plist \
-            -exportPath build
+          mkdir -p build/Payload
+          cp -R build/PocketTmux.xcarchive/Products/Applications/PocketTmux.app build/Payload/
+          (cd build && zip -qry "PocketTmux-iOS-${GITHUB_REF_NAME}-unsigned.ipa" Payload)
+          unzip -l "build/PocketTmux-iOS-${GITHUB_REF_NAME}-unsigned.ipa" | tail -1
 
       # ---------------------------------------------------------------- macOS
       - name: Build PocketTmux for Mac (Release, unsigned)
         id: mac
         working-directory: App
-        continue-on-error: true
         run: |
           xcodebuild build \
             -project PocketTmux.xcodeproj \
@@ -105,7 +96,6 @@ jobs:
       - name: Build pockettmuxd (Release, unsigned)
         id: daemon
         working-directory: App
-        continue-on-error: true
         run: |
           xcodebuild build \
             -project PocketTmux.xcodeproj \
@@ -154,7 +144,7 @@ jobs:
             printf '\n### Downloads\n'
             printf -- '- `PocketTmux-macOS-*.zip` — Mac menu-bar app (unsigned: right-click → Open on first launch)\n'
             printf -- '- `pockettmuxd-*.tar.gz` — headless agent binary (unsigned)\n'
-            printf -- '- `*.ipa` — iPhone app, ad-hoc signed (only present when the runner could sign)\n'
+            printf -- '- `PocketTmux-iOS-*-unsigned.ipa` — iPhone app, **unsigned**: re-sign with your own Apple ID (Sideloadly / AltStore / `codesign`) or build the `PocketTmux` scheme from Xcode\n'
           } >> "$NOTES_FILE"
 
           # Attach whatever the build steps produced.
