@@ -5,29 +5,60 @@ options:
   bundleIdPrefix: com.waylake
   deploymentTarget:
     iOS: "16.0"
+    macOS: "14.0"
   createIntermediateGroups: true
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.1.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm.git
+    from: 1.19.0
 targets:
   PocketTmux:
     type: application
     platform: iOS
     sources:
       - PocketTmux
+    dependencies:
+      - package: SwiftTerm
+    info:
+      path: PocketTmux/Info.plist
+      properties:
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSCameraUsageDescription: 'Scan the pairing QR shown on your Mac to connect automatically.'
+        # v1 is LAN/Tailscale + token (no TLS — documented simplification,
+        # ARCHITECTURE F9). iOS blocks plain ws:// without this exception;
+        # Tailscale's 100.64/10 is outside NSAllowsLocalNetworking's scope.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.waylake.pockettmux
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  PocketTmuxAgent:
+    type: tool
+    platform: macOS
+    sources:
+      - Agent
+      - AgentCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.waylake.pockettmux.agent
+        PRODUCT_NAME: pockettmuxd
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        ENABLE_HARDENED_RUNTIME: YES
   PocketTmuxTests:
     type: bundle.unit-test
     platform: iOS
     sources:
       - PocketTmuxTests
+      - AgentCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.waylake.pockettmux.tests

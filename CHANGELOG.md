@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- v1: `pockettmuxd` Mac agent (WebSocket + `tmux -CC` control client, token auth, QR pairing) and the native iPhone client (Connect / QR scan / session list / SwiftTerm terminal). `scripts/start-agent.sh`, `scripts/pair.sh`.
+- `docs/PRODUCT-v1.md`, `docs/TROUBLESHOOTING.md` (attach → "session ended", window-size flicker, scrolling).
+
 ## [0.1.0] - 2026-09-01
 
 ### Added

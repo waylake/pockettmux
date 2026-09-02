@@ -43,6 +43,25 @@ xcodegen generate          # regenerates PocketTmux.xcodeproj from Project.yml
 open PocketTmux.xcodeproj # pick a device/simulator, ⌘R to build & run
 ```
 
+### v1 — native agent + app
+
+```sh
+cd pockettmux
+scripts/start-agent.sh     # builds & runs pockettmuxd (ws://0.0.0.0:7682), token in ~/.pockettmux/token
+scripts/pair.sh            # shows a pairing QR on screen
+```
+
+On the iPhone: open PocketTmux → **Scan pairing QR** → point at the QR.
+The host/port/token are filled in and it connects. From then on the phone
+reconnects with a single tap. Manual fallback: Connect screen with
+the Tailscale/LAN IP, port 7682, token from `cat ~/.pockettmux/token`.
+
+> First run on the Mac shows the *“allow incoming connections?”* firewall
+> prompt — allow it, or the phone can't reach the agent (the app shows
+> Reconnecting…).
+> CLI note: xcodebuild needs `-skipPackagePluginValidation` for the SwiftTerm
+> build-tool plugin; the Xcode GUI builds normally.
+
 **P0 — a terminal on the phone in 2 minutes (optional):** run `ttyd tmux new -A -s main` on the Mac, open `http://<mac-ip>:7681` in the phone's Safari, and use *Add to Home Screen* to get a PWA. This validates the same architecture with zero native code; the native app replaces it from P1 on.
 
 ## Documentation
@@ -52,6 +71,7 @@ open PocketTmux.xcodeproj # pick a device/simulator, ⌘R to build & run
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, the full request flow (keypress → tmux → screen), the transport protocol, key design decisions & alternatives, failure modes |
 | [docs/TECH_STACK.md](docs/TECH_STACK.md) | Every technology with version, license, rationale & alternatives — researched as of **2026-09** (GitHub API / npm registry / Apple Developer) |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phases P0 → v1.0, milestones, definitions of done, non-goals |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Real failure modes (attach → "session ended", window-size flicker) with root causes & the research behind each fix |
 
 ## Project layout
 
