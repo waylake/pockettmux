@@ -81,11 +81,10 @@ struct HostsView: View {
     private var savedSection: some View {
         Section {
             ForEach(store.profiles) { profile in
-                profileRow(profile)
+                Button { open(profile) } label: { profileRow(profile) }
+                    .buttonStyle(.plain)
                     .listRowBackground(Theme.surface)
                     .listRowSeparatorTint(Theme.surface2)
-                    .contentShape(Rectangle())
-                    .onTapGesture { open(profile) }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) { pendingForget = profile } label: {
                             Label(L.delete, systemImage: "trash")

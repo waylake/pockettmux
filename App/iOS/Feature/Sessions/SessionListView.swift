@@ -120,11 +120,10 @@ struct SessionListView: View {
     private var list: some View {
         List {
             ForEach(client.sessions) { s in
-                row(s)
+                Button { attach(s) } label: { row(s) }
+                    .buttonStyle(.plain)
                     .listRowBackground(Theme.surface)
                     .listRowSeparatorTint(Theme.surface2)
-                    .contentShape(Rectangle())
-                    .onTapGesture { attach(s) }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) { pendingKill = s } label: {
                             Label(L.kill, systemImage: "trash")
