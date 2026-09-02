@@ -19,6 +19,7 @@ PocketTmux is now **two apps** built from one repo and one shared Swift package.
 - CI builds the package tests, the iOS app (+ tests), the Mac app and the daemon; releases attach the `.ipa`, `PocketTmux.app` zip and `pockettmuxd` tarball.
 - `scripts/check-attach-prime.py` grew into a full end-to-end check (prime, size-before-paint, windows, input, paste, ping, detach reasons, auth).
 - Docs: `PRODUCT.md` (both apps), `PROTOCOL.md`, rewritten `ARCHITECTURE.md`, `ROADMAP.md`, `TECH_STACK.md`; new troubleshooting entries (Bonjour, port in use, unsigned builds).
+- README rewritten as a product page: app screenshots of both apps in `docs/assets/`, mermaid architecture and attach-sequence diagrams, install/pairing/security sections.
 
 ### Changed
 - Repo layout: `App/iOS`, `App/macOS`, `App/Daemon`, `App/PocketTmuxKit` (was `App/PocketTmux`, `App/Agent`, `App/AgentCore`). `Project.yml` defines four targets and references the local package.
@@ -33,6 +34,7 @@ PocketTmux is now **two apps** built from one repo and one shared Swift package.
 ### Fixed
 - Sending `error{auth}` on a bad token was racing the socket close; the frame is now flushed before the connection is cancelled.
 - `pockettmuxd` crashed on SIGTERM (`exit()` from a raw signal handler); signals are handled through dispatch sources.
+- Tapping a Mac on the Macs screen or a session on the Sessions screen did nothing: `.onTapGesture` on a `List` row never fires next to `swipeActions`/`contextMenu` on iOS 26, so both rows are plain `Button`s now.
 
 ## [0.1.0] - 2026-09-01
 
