@@ -6,8 +6,9 @@ real WebSocket, speaking protocol v2. Asserts that:
      mouse reporting escapes + the pane's content, incl. shell scrollback)
   2. attach carries the phone's size: the pane is resized *before* the paint
   3. windows: list / create / select (→ reset frame) / rename / kill
-  4. input round-trips (a marker typed on the "phone" shows up in output)
-  5. paste lands as one write, ping answers pong
+  4. split panes: one pane is phone-zoomed, selectable, full-width, and restored
+  5. input round-trips (a marker typed on the "phone" shows up in output)
+  6. paste lands as one write, ping answers pong
 
 Env: POCKETTMUX_HOST (127.0.0.1) POCKETTMUX_PORT (7682) POCKETTMUX_TOKEN (~/.pockettmux/token)
 """
@@ -17,6 +18,9 @@ HOST = os.environ.get("POCKETTMUX_HOST", "127.0.0.1")
 PORT = int(os.environ.get("POCKETTMUX_PORT", "7682"))
 TOKEN = os.environ.get("POCKETTMUX_TOKEN") or open(os.path.expanduser("~/.pockettmux/token")).read().strip()
 TMUX = os.environ.get("TMUX_BIN", "tmux")
+TMUX_ENV = os.environ.copy()
+TMUX_ENV.pop("TMUX", None)
+TMUX_ENV.pop("TMUX_PANE", None)
 CLIENT = {"name": "e2e", "model": "python", "app": "check-attach-prime"}
 
 
@@ -104,7 +108,7 @@ class Client:
 
 
 def tmux(*args, check=False):
-    return subprocess.run([TMUX, *args], capture_output=True, text=True, check=check).stdout
+    return subprocess.run([TMUX, *args], capture_output=True, text=True, check=check, env=TMUX_ENV).stdout
 
 
 def fresh_session(name, cmd):
@@ -198,6 +202,65 @@ def check_windows_and_input():
     c.close()
 
 
+def check_panes():
+    sid = fresh_session("pt_pane", "bash --norc --noprofile")
+    c = Client()
+    try:
+        send(c.s, "session.attach", {"id": sid, "cols": 60, "rows": 20})
+        c.wait("session.attached")
+        initial = c.wait("panes", where=lambda m: len(m["payload"]["panes"]) == 1)
+        c.screen("reset")
+        first = initial["payload"]["panes"][0]["id"]
+
+        second = tmux("split-window", "-h", "-P", "-F", "#{pane_id}", "-t", first).strip()
+        panes = c.wait(
+            "panes", where=lambda m: {p["id"] for p in m["payload"]["panes"]} == {first, second}
+        )["payload"]["panes"]
+        c.screen("reset")
+        assert [p["active"] for p in panes].count(True) == 1, panes
+        assert tmux("display-message", "-p", "-t", first, "#{window_zoomed_flag}").strip() == "1"
+        assert tmux("display-message", "-p", "-t", first, "#{pane_width}x#{pane_height}").strip() == "60x20"
+        print("ok  split window → selected pane zoomed to the full 60x20 phone grid")
+
+        send(c.s, "pane.select", {"id": second})
+        panes = c.wait(
+            "panes", where=lambda m: any(p["id"] == second and p["active"] for p in m["payload"]["panes"])
+        )["payload"]["panes"]
+        c.screen("reset")
+        assert tmux("display-message", "-p", "-t", second, "#{window_zoomed_flag}").strip() == "1"
+        assert tmux("display-message", "-p", "-t", second, "#{pane_width}x#{pane_height}").strip() == "60x20"
+        marker = "PANE_" + secrets.token_hex(3)
+        send(c.s, "input", {"data": base64.b64encode(f"echo {marker}\r".encode()).decode()})
+        assert marker.encode() in c.collect_screen(1.5), "input did not reach the selected pane"
+        print("ok  pane.select → phone-selected pane is full-width and receives input")
+
+        send(c.s, "session.detach")
+        c.wait("session.detached", where=lambda m: m["payload"]["reason"] == "requested")
+        assert tmux("display-message", "-p", "-t", first, "#{window_zoomed_flag}").strip() == "0"
+        assert len(tmux("list-panes", "-t", sid, "-F", "#{pane_id}").splitlines()) == 2
+        size_opt = tmux("show-window-option", "-t", sid, "window-size").strip()
+        assert "manual" not in size_opt, size_opt
+        print("ok  detach → pane zoom restored, original split and window sizing preserved")
+
+        # Re-attach, then close the phone-selected pane. The remaining pane is
+        # full-width naturally, so agent-owned zoom must be cleared immediately.
+        send(c.s, "session.attach", {"id": sid, "cols": 60, "rows": 20})
+        c.wait("session.attached")
+        c.wait("panes", where=lambda m: len(m["payload"]["panes"]) == 2)
+        c.screen("reset")
+        tmux("kill-pane", "-t", second)
+        remaining = c.wait("panes", where=lambda m: len(m["payload"]["panes"]) == 1)["payload"]["panes"]
+        c.screen("reset")
+        assert remaining[0]["id"] == first, remaining
+        assert tmux("display-message", "-p", "-t", first, "#{window_zoomed_flag}").strip() == "0"
+        send(c.s, "session.detach")
+        c.wait("session.detached", where=lambda m: m["payload"]["reason"] == "requested")
+        print("ok  selected pane close → phone-owned zoom cleared without touching survivor")
+    finally:
+        c.close()
+        tmux("kill-session", "-t", "pt_pane")
+
+
 def check_auth():
     s, rest = ws_connect()
     send(s, "hello", {"v": 2, "auth": "wrong-token-000000", "client": CLIENT})
@@ -218,5 +281,6 @@ m = check_prime("pt_mouse", "bash -c \"printf '\\033[?1049h\\033[?1000h\\033[?10
 assert b"\x1b[?1000h" in m and b"\x1b[?1006h" in m, f"mouse mode not primed: {m[:160]!r}"
 print("ok  mouse reporting primed")
 check_windows_and_input()
+check_panes()
 check_auth()
 print("ALL OK")

@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Native Window/Pane hierarchy menu on iPhone. A phone-selected pane in a
+  split tmux window is zoomed to the full phone grid, can be changed without
+  flattening the split, and is restored on window switch or detach.
+- Additive protocol-v2 `panes` and `pane.select` frames plus a `panes` agent
+  capability; package and live-agent e2e coverage now includes split panes.
+
+### Changed
+- Replaced the fixed dark product theme with native Apple UI across iPhone and
+  Mac: system navigation, lists, forms, sheets, toolbars, menus, empty states,
+  settings chrome, semantic colors, Dynamic Type, and system appearance.
+- Replaced the custom terminal window strip with a standard hierarchical
+  toolbar menu and restored the native navigation-bar back button.
+- Kept specialized presentation only where the product needs it: SwiftTerm,
+  QR scanning/rendering, logs, and technical values.
+- Added `docs/UI_GUIDELINES.md`, an Apple HIG/SwiftUI research record, component
+  map, explicit exceptions, and review checklist.
+
+### Fixed
+- Split tmux windows no longer squeeze the phone's selected pane into half its
+  grid and leave TUIs visibly clipped.
+- Short-lived agent commands and the forked tmux control client now remove
+  inherited `TMUX` / `TMUX_PANE`, preventing commands launched from a tmux shell
+  from operating in the launching client's context.
+
 ## [1.0.0] - 2026-09-02
 
 PocketTmux is now **two apps** built from one repo and one shared Swift package.

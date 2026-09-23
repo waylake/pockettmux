@@ -15,7 +15,8 @@ struct PocketTmuxMacApp: App {
         MenuBarExtra {
             MenuPanelView(controller: controller)
         } label: {
-            MenuBarLabel(isRunning: controller.isRunning, attached: controller.attachedClients > 0,
+            MenuBarLabel(isRunning: controller.isRunning,
+                         attached: controller.attachedClients > 0,
                          hasError: controller.errorText != nil)
         }
         .menuBarExtraStyle(.window)
@@ -26,7 +27,7 @@ struct PocketTmuxMacApp: App {
         .windowResizability(.contentSize)
         .defaultPosition(.center)
 
-        Window("Log", id: WindowID.log) {
+        Window("Agent Log", id: WindowID.log) {
             LogView(controller: controller)
         }
         .defaultSize(width: 640, height: 420)
@@ -43,21 +44,28 @@ enum WindowID {
     static let log = "log"
 }
 
-/// `terminal` stopped · `terminal.fill` running · plus a phone while attached.
+/// One status symbol follows normal menu-bar-extra behavior.
 private struct MenuBarLabel: View {
     let isRunning: Bool
     let attached: Bool
     let hasError: Bool
 
     var body: some View {
-        HStack(spacing: 2) {
-            Image(systemName: isRunning ? "terminal.fill" : "terminal")
-            if attached {
-                Image(systemName: "iphone.gen3")
-            } else if hasError {
-                Image(systemName: "exclamationmark")
-            }
-        }
+        Image(systemName: symbol)
+            .symbolRenderingMode(.hierarchical)
+            .accessibilityLabel(title)
+    }
+
+    private var symbol: String {
+        if hasError { return "exclamationmark.triangle.fill" }
+        if attached { return "iphone.gen3" }
+        return isRunning ? "terminal.fill" : "terminal"
+    }
+
+    private var title: String {
+        if hasError { return "PocketTmux agent error" }
+        if attached { return "PocketTmux with iPhone attached" }
+        return isRunning ? "PocketTmux agent running" : "PocketTmux agent stopped"
     }
 }
 

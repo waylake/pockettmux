@@ -75,6 +75,31 @@ public struct WindowInfo: Codable, Identifiable, Equatable, Hashable, Sendable {
     }
 }
 
+/// One tmux pane in the active window. `active` is the pane selected by this
+/// phone's control client, not necessarily the window's global active pane.
+public struct PaneInfo: Codable, Identifiable, Equatable, Hashable, Sendable {
+    public var id: String        // "%7"
+    public var index: Int
+    public var title: String
+    public var active: Bool
+    public var width: Int
+    public var height: Int
+    public var left: Int
+    public var top: Int
+
+    public init(id: String, index: Int, title: String, active: Bool,
+                width: Int, height: Int, left: Int, top: Int) {
+        self.id = id
+        self.index = index
+        self.title = title
+        self.active = active
+        self.width = width
+        self.height = height
+        self.left = left
+        self.top = top
+    }
+}
+
 public enum ScreenMode: String, Codable, Sendable {
     /// Full repaint: the emulator should treat this as the whole pane
     /// (attach, window switch, reconnect).

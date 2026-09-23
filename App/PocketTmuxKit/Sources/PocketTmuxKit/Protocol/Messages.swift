@@ -17,6 +17,8 @@ public enum ClientMessage: Equatable, Sendable {
     case windowCreate
     case windowKill(id: String)
     case windowRename(id: String, name: String)
+    /// Select one pane in the active window for this phone's control client.
+    case paneSelect(id: String)
     /// Raw keystroke bytes for the active pane.
     case input(Data)
     /// Text pasted with tmux bracketed-paste semantics (no per-key storm).
@@ -35,6 +37,9 @@ public enum ServerMessage: Equatable, Sendable {
     case sessionDetached(reason: DetachReason)
     /// Window list of the attached session changed (add/close/rename/select).
     case windows(sessionID: String, windows: [WindowInfo])
+    /// Pane list of the phone's active window. `PaneInfo.active` is scoped to
+    /// this phone's control client.
+    case panes(sessionID: String, windowID: String, panes: [PaneInfo])
     case screen(mode: ScreenMode, data: Data)
     case pong(sentAt: Double)
     case error(code: ErrorCode, message: String)
@@ -114,6 +119,7 @@ extension ClientMessage: Codable {
         case .windowCreate: return "window.create"
         case .windowKill: return "window.kill"
         case .windowRename: return "window.rename"
+        case .paneSelect: return "pane.select"
         case .input: return "input"
         case .paste: return "paste"
         case .resize: return "resize"
@@ -135,7 +141,7 @@ extension ClientMessage: Codable {
             try c.encode(IDNamePayload(id: id, name: name), forKey: .payload)
         case .sessionAttach(let id, let cols, let rows):
             try c.encode(AttachPayload(id: id, cols: cols, rows: rows), forKey: .payload)
-        case .sessionKill(let id), .windowSelect(let id), .windowKill(let id):
+        case .sessionKill(let id), .windowSelect(let id), .windowKill(let id), .paneSelect(let id):
             try c.encode(IDPayload(id: id), forKey: .payload)
         case .input(let data):
             try c.encode(DataPayload(data: data), forKey: .payload)
@@ -172,6 +178,7 @@ extension ClientMessage: Codable {
         case "window.rename":
             let p = try c.decode(IDNamePayload.self, forKey: .payload)
             self = .windowRename(id: p.id, name: p.name)
+        case "pane.select": self = .paneSelect(id: try c.decode(IDPayload.self, forKey: .payload).id)
         case "input": self = .input(try c.decode(DataPayload.self, forKey: .payload).data)
         case "paste": self = .paste(try c.decode(TextPayload.self, forKey: .payload).text)
         case "resize":
@@ -190,6 +197,7 @@ private struct SessionsPayload: Codable { var sessions: [SessionInfo] }
 private struct AttachedPayload: Codable { var session: SessionInfo; var windows: [WindowInfo] }
 private struct DetachedPayload: Codable { var reason: DetachReason }
 private struct WindowsPayload: Codable { var sessionID: String; var windows: [WindowInfo] }
+private struct PanesPayload: Codable { var sessionID: String; var windowID: String; var panes: [PaneInfo] }
 private struct ScreenPayload: Codable { var mode: ScreenMode; var data: Data }
 private struct ErrorPayload: Codable { var code: ErrorCode; var message: String }
 
@@ -201,6 +209,7 @@ extension ServerMessage: Codable {
         case .sessionAttached: return "session.attached"
         case .sessionDetached: return "session.detached"
         case .windows: return "windows"
+        case .panes: return "panes"
         case .screen: return "screen"
         case .pong: return "pong"
         case .error: return "error"
@@ -221,6 +230,8 @@ extension ServerMessage: Codable {
             try c.encode(DetachedPayload(reason: reason), forKey: .payload)
         case .windows(let sessionID, let windows):
             try c.encode(WindowsPayload(sessionID: sessionID, windows: windows), forKey: .payload)
+        case .panes(let sessionID, let windowID, let panes):
+            try c.encode(PanesPayload(sessionID: sessionID, windowID: windowID, panes: panes), forKey: .payload)
         case .screen(let mode, let data):
             try c.encode(ScreenPayload(mode: mode, data: data), forKey: .payload)
         case .pong(let sentAt):
@@ -247,6 +258,9 @@ extension ServerMessage: Codable {
         case "windows":
             let p = try c.decode(WindowsPayload.self, forKey: .payload)
             self = .windows(sessionID: p.sessionID, windows: p.windows)
+        case "panes":
+            let p = try c.decode(PanesPayload.self, forKey: .payload)
+            self = .panes(sessionID: p.sessionID, windowID: p.windowID, panes: p.panes)
         case "screen":
             let p = try c.decode(ScreenPayload.self, forKey: .payload)
             self = .screen(mode: p.mode, data: p.data)

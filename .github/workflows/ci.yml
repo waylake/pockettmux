@@ -17,7 +17,7 @@ concurrency:
 #    Xcode 16.4 on macos-15 fails with "unknown attribute 'MainActor'".
 # 2. Every xcodebuild needs -skipPackagePluginValidation: SwiftTerm's build-tool
 #    plugin fails its "Validate plug-in" step on Xcode 26 before compiling
-#    anything (see CLAUDE.md). Safe: the plugin only emits build-info constants.
+#    anything (see AGENTS.md). Safe: the plugin only emits build-info constants.
 
 jobs:
   lint:
@@ -29,6 +29,8 @@ jobs:
         run: brew install swiftlint
       - name: Lint
         run: swiftlint lint --strict
+      - name: Native UI contract
+        run: scripts/check-native-ui.sh
 
   package:
     name: PocketTmuxKit (swift test)

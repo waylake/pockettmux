@@ -22,7 +22,7 @@ Two apps and one shared Swift package, all in `App/` (details in [docs/ARCHITECT
 ```sh
 brew install xcodegen      # project generator — the spec is App/Project.yml
 brew install swiftlint     # style (optional locally; CI enforces it)
-brew install tmux          # the agent needs tmux ≥ 3.2 on the Mac
+brew install tmux          # the agent needs tmux 3.7 on the Mac
 ```
 
 Xcode 26.2+ on macOS 26 is assumed (the baseline is in [docs/TECH_STACK.md](docs/TECH_STACK.md)).
@@ -38,7 +38,7 @@ open PocketTmux.xcodeproj   # pick a scheme + destination, ⌘R
 
 `Project.yml` is the source of truth; XcodeGen picks up whole source folders, so adding files needs no spec edit — just regenerate.
 
-**Building from the command line** (run from `App/`). Every `xcodebuild` needs `-skipPackagePluginValidation`: SwiftTerm's build-tool plugin fails its validation step on Xcode 26 before anything compiles (see [CLAUDE.md](CLAUDE.md)).
+**Building from the command line** (run from `App/`). Every `xcodebuild` needs `-skipPackagePluginValidation`: SwiftTerm's build-tool plugin fails its validation step on Xcode 26 before anything compiles (see [AGENTS.md](AGENTS.md)).
 
 ```sh
 # shared package (fastest loop for protocol / parser / agent logic)
@@ -59,7 +59,7 @@ xcodebuild build -project PocketTmux.xcodeproj -scheme pockettmuxd \
 ```
 
 > If your local Xcode has no simulators, install the platform: `xcodebuild -downloadPlatform iOS`.
-> Installing on a physical iPhone (signing, `devicectl`) is documented in [CLAUDE.md](CLAUDE.md).
+> Installing on a physical iPhone (signing, `devicectl`) is documented in [AGENTS.md](AGENTS.md).
 
 **Running the agent without Xcode:**
 
@@ -110,15 +110,16 @@ Use the imperative and keep the subject to about 72 characters; explain *why* in
 - **SwiftLint** is the style authority — the config is `.swiftlint.yml`. Run `swiftlint lint` (CI runs `--strict`).
 - Swift 6 language mode with `SWIFT_STRICT_CONCURRENCY: minimal`; SwiftUI-first for UI; drop to AppKit/UIKit only where needed (e.g., hosting the SwiftTerm `TerminalView`).
 - Prefer value types. Keep the wire protocol (`WireCodec`, `ClientMessage`, `ServerMessage`) small and well-named — that's where protocol changes happen, and both apps depend on it.
-- Design language: quiet, monospaced labels, English copy, no emoji, no gradients, corner radius ≤ 6 pt.
+- UI: native Apple components first. No fixed app palette, forced appearance, fixed ordinary-text sizes, or hand-built replacements for standard navigation, lists, forms, toolbars, menus, and empty states. Monospace is limited to terminal/log and technical values. See [docs/UI_GUIDELINES.md](docs/UI_GUIDELINES.md).
 
 ## Tests
 
 Three layers, from fastest to slowest:
 
+- **Native UI contract** — `scripts/check-native-ui.sh` catches high-signal regressions such as forced appearance, fixed app colors/text scales, and custom navigation replacements. The human checklist is `docs/UI_GUIDELINES.md`.
 - **Package tests** — `swift test --package-path App/PocketTmuxKit`. Wire codec round-trips, tmux control-mode parsing, pairing payloads, agent pure logic. Put protocol/parser tests here; they need no simulator.
 - **iOS tests** — `App/iOSTests/` (scheme `PocketTmux`, `xcodebuild test … -skipPackagePluginValidation`). Client-side state: connection/reconnect state machine, profile store migration, view models.
-- **End-to-end** — `python3 scripts/check-attach-prime.py` against a running agent (`scripts/start-agent.sh` or the Mac app). Speaks protocol v2 over a real WebSocket and asserts the attach priming frame, resize-before-paint, window ops, input/paste round-trips and ping/pong. Run it after touching the agent or the protocol. `POCKETTMUX_HOST` / `POCKETTMUX_PORT` / `POCKETTMUX_TOKEN` override the defaults.
+- **End-to-end** — `python3 scripts/check-attach-prime.py` against a running agent (`scripts/start-agent.sh` or the Mac app). Speaks protocol v2 over a real WebSocket and asserts attach priming, resize-before-paint, window ops, split-pane full-width zoom/selection/restoration, input/paste round-trips, ping/pong, and auth. The script strips inherited `TMUX` variables so it is safe to run from a tmux shell. Run it after touching the agent or protocol. `POCKETTMUX_HOST` / `POCKETTMUX_PORT` / `POCKETTMUX_TOKEN` override the defaults.
 
 CI runs the first two on every PR plus a build of `PocketTmuxMac` and `pockettmuxd`; the e2e script needs a real tmux and is run locally.
 
@@ -133,7 +134,7 @@ CI runs the first two on every PR plus a build of `PocketTmuxMac` and `pockettmu
 
 - **User-facing** (what the apps do, how to run them): `README.md`
 - **Design & decisions** (why it's shaped this way, the request flow, the protocol, trade-offs, open questions): `docs/ARCHITECTURE.md`, `docs/TECH_STACK.md`, `docs/ROADMAP.md`, `docs/TROUBLESHOOTING.md`
-- **Build gotchas** (plugin validation, signing, device install, scrolling design): `CLAUDE.md`
+- **Build gotchas + native UI contract** (plugin validation, signing, device install, scrolling design, HIG/SwiftUI conventions): `AGENTS.md` and `docs/UI_GUIDELINES.md`
 - If you change how the system works or *why*, update the matching doc in the same PR.
 
 ## Licensing & attribution

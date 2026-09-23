@@ -20,7 +20,7 @@ permissions:
 # (isolated `@MainActor` conformances, Sendable CIContext — Xcode 16.4 on
 # macos-15 fails with "unknown attribute 'MainActor'"). Every xcodebuild needs
 # -skipPackagePluginValidation (SwiftTerm's build-tool plugin fails validation
-# on Xcode 26 before anything compiles; see CLAUDE.md).
+# on Xcode 26 before anything compiles; see AGENTS.md).
 #
 # Signing status:
 #   iOS  — the ad-hoc archive/export only succeeds when the runner has a

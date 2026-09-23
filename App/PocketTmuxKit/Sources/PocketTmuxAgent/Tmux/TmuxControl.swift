@@ -15,6 +15,7 @@ final class TmuxControl: @unchecked Sendable {
     enum Event {
         case attached(session: SessionInfo, windows: [WindowInfo])
         case windowsChanged([WindowInfo])
+        case panesChanged(sessionID: String, windowID: String, panes: [PaneInfo])
         /// A full repaint (attach / window or pane switch). Stale coalesced
         /// output must be dropped before this is sent.
         case reset([UInt8])
@@ -47,8 +48,13 @@ final class TmuxControl: @unchecked Sendable {
     private var pendingInput = [UInt8]()
     private var inputTimer: DispatchSourceTimer?
     private var windowsRefresh: DispatchWorkItem?
+    private var panesRefresh: DispatchWorkItem?
     /// Windows whose `window-size` we set to manual; unpinned on detach.
     private var pinnedWindows = Set<String>()
+    /// A multi-pane window is zoomed while the phone views one pane. The pane
+    /// is restored/unzoomed on window switch or detach; the split itself stays.
+    private var phoneZoomedWindowID: String?
+    private var phoneZoomedPaneID: String?
     private var detachRequested = false
 
     init(queue: DispatchQueue, tmux: TmuxRunner, log: AgentLog) {
@@ -95,7 +101,11 @@ final class TmuxControl: @unchecked Sendable {
         if pid == 0 {
             // Child: exec the control client. Only async-signal-safe calls here.
             setenv("TERM", "xterm-256color", 1)
-            let args = ["tmux", "-CC", "attach-session", "-t", sessionID]
+            unsetenv("TMUX")
+            unsetenv("TMUX_PANE")
+            let args = [
+                "tmux", "-CC", "attach-session", "-f", "active-pane,ignore-size", "-t", sessionID
+            ]
             var argv: [UnsafeMutablePointer<CChar>?] = args.map { strdup($0) } + [nil]
             execv(tmux.path, &argv)
             _exit(127)
@@ -138,12 +148,16 @@ final class TmuxControl: @unchecked Sendable {
         onEvent?(.detached(stillExists ? .controlExited : .sessionKilled))
     }
 
-    /// Kill the child, close the pty, unpin windows. Emits nothing.
+    /// Kill the child, close the pty, restore phone-owned pane zoom, and unpin
+    /// windows. Emits nothing.
     private func teardown() {
         inputTimer?.cancel()
         inputTimer = nil
         windowsRefresh?.cancel()
         windowsRefresh = nil
+        panesRefresh?.cancel()
+        panesRefresh = nil
+        restorePhoneZoomIfNeeded()
         readSource?.cancel()
         readSource = nil
         if ptyFD >= 0 { close(ptyFD); ptyFD = -1 }
@@ -185,16 +199,23 @@ final class TmuxControl: @unchecked Sendable {
             }
             sessionID = id
             onEvent?(.attached(session: session, windows: tmux.windows(sessionID: id)))
-            showActivePane()
+            showPane(target: id)
         case .sessionWindowChanged(_, let windowID):
             guard state == .attached, windowID != activeWindow else { return }
-            showActivePane()
+            showPane(target: windowID)
             scheduleWindowsRefresh()
-        case .windowPaneChanged(let windowID, let paneID):
-            guard state == .attached, windowID == activeWindow, paneID != activePane else { return }
-            showActivePane()
-        case .windowAdd, .windowClose, .windowRenamed, .layoutChange:
+        case .windowPaneChanged(let windowID, _):
+            // Track the phone-selected pane, but do not follow the window's
+            // global pane selection from the Mac. Moving tmux's zoomed pane is
+            // a window-level operation and may still update that global flag.
+            guard state == .attached, windowID == activeWindow else { return }
+            schedulePaneRefresh()
+        case .windowAdd, .windowClose, .windowRenamed:
             scheduleWindowsRefresh()
+        case .layoutChange(let windowID):
+            scheduleWindowsRefresh()
+            guard state == .attached, windowID == activeWindow else { return }
+            schedulePaneRefresh()
         case .sessionRenamed:
             onEvent?(.sessionsChanged)
         case .sessionsChanged:
@@ -209,21 +230,69 @@ final class TmuxControl: @unchecked Sendable {
         }
     }
 
-    /// Resolve the session's active pane, pin its window to the phone's
-    /// size, and send a full repaint built from tmux's own pane state.
-    private func showActivePane() {
-        guard let sid = sessionID, var paneState = tmux.paneState(target: sid) else { return }
+    /// Resolve a pane, make it fill a multi-pane window, pin that window to the
+    /// phone's size, and send a full repaint built from tmux's own pane state.
+    private func showPane(target: String, keepPhoneZoom: Bool = false) {
+        guard let sid = sessionID else { return }
+        if !keepPhoneZoom { restorePhoneZoomIfNeeded() }
+        guard var paneState = tmux.paneState(target: target) else { return }
+
+        var panes = tmux.panes(windowID: paneState.windowID)
+        ensurePhoneZoom(windowID: paneState.windowID, paneID: paneState.paneID, panes: panes)
+
         if let size = clientSize {
             tmux.pinWindowSize(windowID: paneState.windowID, cols: size.cols, rows: size.rows)
             pinnedWindows.insert(paneState.windowID)
             // Re-read after the resize so the capture matches the new geometry.
-            paneState = tmux.paneState(target: sid) ?? paneState
+            paneState = tmux.paneState(target: paneState.paneID) ?? paneState
+            panes = tmux.panes(windowID: paneState.windowID)
         }
+
         activePane = paneState.paneID
         activeWindow = paneState.windowID
+        publishPanes(sessionID: sid, windowID: paneState.windowID, panes: panes)
         let capture = tmux.capture(paneID: paneState.paneID, fromLine: ScreenPrimer.captureStart(for: paneState))
         onEvent?(.reset(ScreenPrimer.frame(state: paneState, capture: capture)))
         if let size = clientSize { writeLine("refresh-client -C \(size.cols)x\(size.rows)") }
+    }
+
+    /// A phone-sized window with two horizontal panes would leave each pane at
+    /// half width. tmux's own zoom operation gives the selected pane the full
+    /// phone grid while preserving the split; it is undone on switch/detach.
+    private func ensurePhoneZoom(windowID: String, paneID: String, panes: [PaneInfo]) {
+        guard panes.count > 1 else {
+            if phoneZoomedWindowID == windowID { restorePhoneZoomIfNeeded() }
+            return
+        }
+        let ownsWindow = phoneZoomedWindowID == windowID
+        guard phoneZoomedWindowID == nil || ownsWindow, !tmux.windowIsZoomed(windowID: windowID) else { return }
+        guard tmux.togglePaneZoom(paneID: paneID) else {
+            log.warning("could not zoom pane \(paneID) in \(windowID)")
+            return
+        }
+        phoneZoomedWindowID = windowID
+        phoneZoomedPaneID = paneID
+    }
+
+    private func restorePhoneZoomIfNeeded() {
+        guard let windowID = phoneZoomedWindowID else { return }
+        if tmux.windowIsZoomed(windowID: windowID) {
+            let panes = tmux.panes(windowID: windowID)
+            let trackedPane = phoneZoomedPaneID.flatMap { id in panes.contains(where: { $0.id == id }) ? id : nil }
+            let paneID = trackedPane ?? panes.first(where: { $0.id == activePane })?.id ?? panes.first?.id
+            if let paneID { _ = tmux.togglePaneZoom(paneID: paneID) }
+        }
+        phoneZoomedWindowID = nil
+        phoneZoomedPaneID = nil
+    }
+
+    private func publishPanes(sessionID: String, windowID: String, panes: [PaneInfo]) {
+        let scoped = panes.map { pane in
+            var pane = pane
+            pane.active = pane.id == activePane
+            return pane
+        }
+        onEvent?(.panesChanged(sessionID: sessionID, windowID: windowID, panes: scoped))
     }
 
     private func scheduleWindowsRefresh() {
@@ -233,6 +302,27 @@ final class TmuxControl: @unchecked Sendable {
             self.onEvent?(.windowsChanged(self.tmux.windows(sessionID: sid)))
         }
         windowsRefresh = item
+        queue.asyncAfter(deadline: .now() + .milliseconds(60), execute: item)
+    }
+
+    private func schedulePaneRefresh() {
+        panesRefresh?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, let windowID = self.activeWindow, self.state == .attached else { return }
+            let panes = self.tmux.panes(windowID: windowID)
+            let selectedPane = panes.first { $0.id == self.activePane }
+            let splitNeedsZoom = panes.count > 1 && !self.tmux.windowIsZoomed(windowID: windowID)
+            let sizeMismatch = self.clientSize.map { size in
+                selectedPane?.width != size.cols || selectedPane?.height != size.rows
+            } ?? false
+            if selectedPane == nil || splitNeedsZoom || sizeMismatch {
+                let target = selectedPane == nil ? windowID : self.activePane ?? windowID
+                self.showPane(target: target, keepPhoneZoom: self.phoneZoomedWindowID == windowID)
+            } else if let sid = self.sessionID {
+                self.publishPanes(sessionID: sid, windowID: windowID, panes: panes)
+            }
+        }
+        panesRefresh = item
         queue.asyncAfter(deadline: .now() + .milliseconds(60), execute: item)
     }
 
@@ -253,18 +343,42 @@ final class TmuxControl: @unchecked Sendable {
     func resize(cols: Int, rows: Int) {
         queue.async { [self] in
             clientSize = (cols, rows)
-            guard state == .attached, let window = activeWindow else { return }
-            tmux.pinWindowSize(windowID: window, cols: cols, rows: rows)
-            pinnedWindows.insert(window)
+            guard state == .attached, let windowID = activeWindow, let paneID = activePane else { return }
+            let panes = tmux.panes(windowID: windowID)
+            ensurePhoneZoom(windowID: windowID, paneID: paneID, panes: panes)
+            tmux.pinWindowSize(windowID: windowID, cols: cols, rows: rows)
+            pinnedWindows.insert(windowID)
             writeLine("refresh-client -C \(cols)x\(rows)")
         }
     }
 
     func selectWindow(id: String) {
         queue.async { [self] in
-            guard state == .attached else { return }
-            if !tmux.selectWindow(id: id) { onEvent?(.error("no such window \(id)")) }
-            // %session-window-changed follows and repaints.
+            guard state == .attached, let sid = sessionID else { return }
+            guard tmux.windows(sessionID: sid).contains(where: { $0.id == id }) else {
+                onEvent?(.error("no such window \(id)"))
+                return
+            }
+            // Switch this client rather than the window's global active state.
+            // %session-window-changed follows and re-primes the selected pane.
+            writeLine("switch-client -t \(id)")
+        }
+    }
+
+    func selectPane(id: String) {
+        queue.async { [self] in
+            guard state == .attached, let windowID = activeWindow,
+                  tmux.panes(windowID: windowID).contains(where: { $0.id == id }) else {
+                onEvent?(.error("no such pane \(id)"))
+                return
+            }
+            guard id != activePane else { return }
+            activePane = id
+            if phoneZoomedWindowID == windowID { phoneZoomedPaneID = id }
+            // `-Z` moves an already-zoomed window to this client pane instead
+            // of unzooming it. showPane then guarantees full phone width.
+            writeLine("switch-client -Z -t \(id)")
+            showPane(target: id, keepPhoneZoom: phoneZoomedWindowID == windowID)
         }
     }
 

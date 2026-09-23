@@ -15,6 +15,11 @@ public enum TmuxFormats {
         "#{window_id}", "#{window_index}", "#{window_name}", "#{window_active}", "#{window_panes}"
     ].joined(separator: String(separator))
 
+    public static let paneList = [
+        "#{pane_id}", "#{pane_index}", "#{pane_title}", "#{pane_active}",
+        "#{pane_width}", "#{pane_height}", "#{pane_left}", "#{pane_top}"
+    ].joined(separator: String(separator))
+
     /// Per-pane state the phone's emulator must be primed with on attach.
     public static let paneState = [
         "#{pane_id}", "#{alternate_on}", "#{mouse_any_flag}", "#{mouse_sgr_flag}",
@@ -42,6 +47,19 @@ public enum TmuxFormats {
         let f = fields(line)
         guard f.count >= 5, let index = Int(f[1]), let panes = Int(f[4]) else { return nil }
         return WindowInfo(id: f[0], index: index, name: f[2], active: f[3] == "1", panes: panes)
+    }
+
+    public static func parsePanes(_ text: String) -> [PaneInfo] {
+        text.split(separator: "\n").compactMap { parsePane(String($0)) }
+    }
+
+    public static func parsePane(_ line: String) -> PaneInfo? {
+        let f = fields(line)
+        guard f.count >= 8, f[0].hasPrefix("%"),
+              let index = Int(f[1]), let width = Int(f[4]), let height = Int(f[5]),
+              let left = Int(f[6]), let top = Int(f[7]) else { return nil }
+        return PaneInfo(id: f[0], index: index, title: f[2], active: f[3] == "1",
+                        width: width, height: height, left: left, top: top)
     }
 
     public struct PaneState: Equatable, Sendable {

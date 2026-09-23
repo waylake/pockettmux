@@ -1,8 +1,8 @@
 import SwiftUI
 import PocketTmuxKit
 
-/// Screen 2 — Sessions. Live tmux sessions of the connected Mac: attach,
-/// create, rename, kill; pull to refresh; connection status under the title.
+/// Live tmux sessions for the connected Mac. Rows are native navigation links;
+/// destructive and secondary actions use swipe actions and context menus.
 struct SessionListView: View {
     @EnvironmentObject private var client: AgentClient
     @EnvironmentObject private var store: ProfileStore
@@ -15,22 +15,42 @@ struct SessionListView: View {
     @State private var pendingKill: SessionInfo?
     @State private var renaming: SessionInfo?
     @State private var renameText = ""
-    /// Name passed to `sessionCreate`; attached when the next list push has it.
     @State private var pendingCreateName: String?
 
     var body: some View {
-        VStack(spacing: 0) {
-            statusRow
+        List {
+            Section {
+                statusLabel
+            }
+
             if client.sessions.isEmpty {
-                empty
+                emptyState
             } else {
-                list
+                Section {
+                    ForEach(client.sessions) { session in
+                        NavigationLink(value: Route.terminal(sessionID: session.id)) {
+                            row(session)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) { pendingKill = session } label: {
+                                Label(L.kill, systemImage: "trash")
+                            }
+                        }
+                        .contextMenu {
+                            Button { renameText = session.name; renaming = session } label: {
+                                Label(L.rename, systemImage: "pencil")
+                            }
+                            Button(role: .destructive) { pendingKill = session } label: {
+                                Label(L.kill, systemImage: "trash")
+                            }
+                        }
+                    }
+                }
             }
         }
-        .background(Theme.bg.ignoresSafeArea())
+        .refreshable { client.listSessions() }
         .navigationTitle(store.profile(profileID)?.name ?? client.host?.name ?? L.sessions)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button { newName = ""; showNew = true } label: { Image(systemName: "plus") }
@@ -42,6 +62,7 @@ struct SessionListView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel(L.more)
             }
         }
         .alert(L.newSession, isPresented: $showNew) {
@@ -65,9 +86,10 @@ struct SessionListView: View {
         .alert(L.invalidName, isPresented: $showInvalidName) {
             Button(L.done, role: .cancel) {}
         }
-        .confirmationDialog(L.killSessionTitle(pendingKill?.name ?? ""), isPresented: killBinding, titleVisibility: .visible) {
+        .confirmationDialog(L.killSessionTitle(pendingKill?.name ?? ""), isPresented: killBinding,
+                            titleVisibility: .visible) {
             Button(L.kill, role: .destructive) {
-                if let s = pendingKill { client.killSession(id: s.id) }
+                if let session = pendingKill { client.killSession(id: session.id) }
                 pendingKill = nil
             }
             Button(L.cancel, role: .cancel) { pendingKill = nil }
@@ -78,28 +100,24 @@ struct SessionListView: View {
             if client.status == .connected { client.listSessions() }
         }
         .onChange(of: client.sessions) { sessions in
-            guard let name = pendingCreateName, let s = sessions.first(where: { $0.name == name }) else { return }
+            guard let name = pendingCreateName,
+                  let session = sessions.first(where: { $0.name == name }) else { return }
             pendingCreateName = nil
-            attach(s)
+            path.append(.terminal(sessionID: session.id))
         }
     }
 
-    // MARK: - Status
-
-    private var statusRow: some View {
+    private var statusLabel: some View {
         let error = client.status != .connected ? client.lastError : nil
-        let color = Theme.statusColor(client.status, error: error != nil)
         return HStack(spacing: 8) {
-            StatusDot(color: color)
+            StatusIndicator(state: client.status, error: error != nil)
             Text(statusText(error: error))
-                .font(Theme.mono(11))
-                .foregroundStyle(color)
+                .font(.caption)
+                .foregroundStyle(NativeStyle.statusColor(client.status, error: error != nil))
                 .lineLimit(1)
             Spacer()
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-        .background(Theme.surface)
+        .accessibilityElement(children: .combine)
     }
 
     private func statusText(error: String?) -> String {
@@ -115,90 +133,59 @@ struct SessionListView: View {
         }
     }
 
-    // MARK: - List
-
-    private var list: some View {
-        List {
-            ForEach(client.sessions) { s in
-                Button { attach(s) } label: { row(s) }
-                    .buttonStyle(.plain)
-                    .listRowBackground(Theme.surface)
-                    .listRowSeparatorTint(Theme.surface2)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) { pendingKill = s } label: {
-                            Label(L.kill, systemImage: "trash")
-                        }
-                    }
-                    .contextMenu {
-                        Button { renameText = s.name; renaming = s } label: {
-                            Label(L.rename, systemImage: "pencil")
-                        }
-                        Button(role: .destructive) { pendingKill = s } label: {
-                            Label(L.kill, systemImage: "trash")
-                        }
-                    }
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .refreshable { client.listSessions() }
-    }
-
-    private func row(_ s: SessionInfo) -> some View {
+    private func row(_ session: SessionInfo) -> some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(s.name)
-                    .font(Theme.mono(17, .semibold))
-                    .foregroundStyle(Theme.paper)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(session.name)
+                    .font(.headline)
                     .lineLimit(1)
-                Text("\(L.windows(s.windows)) · \(L.clients(s.attached)) · \(L.ago(s.activity))")
-                    .font(Theme.mono(11))
-                    .foregroundStyle(Theme.muted)
+                Text("\(L.windows(session.windows)) · \(L.clients(session.attached)) · \(L.ago(session.activity))")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
-            Spacer()
-            if client.attached?.session.id == s.id {
-                Image(systemName: "iphone")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Theme.moegi)
+            if client.attached?.session.id == session.id {
+                Image(systemName: "iphone.gen3")
+                    .foregroundStyle(.green)
+                    .accessibilityLabel(L.attachedOnIPhone)
             }
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Theme.muted.opacity(0.6))
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 2)
     }
 
-    private var empty: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Text(L.emptySessions)
-                .font(Theme.mono(13))
-                .foregroundStyle(Theme.paper)
-            Text(L.emptyHint)
-                .font(Theme.mono(11))
-                .foregroundStyle(Theme.muted)
-            Button { newName = ""; showNew = true } label: {
-                Text(L.newSession)
-                    .font(Theme.mono(12, .semibold))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Theme.surface2)
-                    .foregroundStyle(Theme.paper)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    @ViewBuilder
+    private var emptyState: some View {
+        if #available(iOS 17.0, *) {
+            ContentUnavailableView {
+                Label(L.emptySessions, systemImage: "terminal")
+            } description: {
+                Text(L.emptyDescription)
+            } actions: {
+                Button(L.newSession, systemImage: "plus") { newName = ""; showNew = true }
+                    .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.plain)
-            .padding(.top, 8)
-            Spacer()
+            .listRowBackground(Color.clear)
+        } else {
+            VStack(spacing: 12) {
+                Image(systemName: "terminal")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Text(L.emptySessions)
+                    .font(.headline)
+                Text(L.emptyDescription)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button(L.newSession, systemImage: "plus") { newName = ""; showNew = true }
+                    .buttonStyle(.borderedProminent)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+            .listRowBackground(Color.clear)
         }
-        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Actions
-
-    private func attach(_ s: SessionInfo) {
-        client.attach(sessionID: s.id)
-        if path.last != .terminal { path.append(.terminal) }
-    }
 
     private func create(name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
@@ -207,11 +194,11 @@ struct SessionListView: View {
         client.createSession(name: trimmed)
     }
 
-    private func rename(_ s: SessionInfo, to name: String) {
+    private func rename(_ session: SessionInfo, to name: String) {
         renaming = nil
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard TmuxNames.isValidName(trimmed) else { showInvalidName = true; return }
-        client.renameSession(id: s.id, name: trimmed)
+        client.renameSession(id: session.id, name: trimmed)
     }
 
     private var killBinding: Binding<Bool> {

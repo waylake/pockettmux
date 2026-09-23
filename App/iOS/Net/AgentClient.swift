@@ -7,12 +7,16 @@ enum ConnState: Equatable {
     case idle, connecting, connected, reconnecting
 }
 
-/// The session the control client is showing, plus its window list.
+/// The session the control client is showing, plus its window and pane lists.
 struct AttachedState: Equatable {
     var session: SessionInfo
     var windows: [WindowInfo]
+    var panes: [PaneInfo]
+    var panesWindowID: String?
 
     var activeWindow: WindowInfo? { windows.first { $0.active } ?? windows.first }
+    var activePanes: [PaneInfo] { panesWindowID == activeWindow?.id ? panes : [] }
+    var activePane: PaneInfo? { activePanes.first { $0.active } ?? activePanes.first }
 }
 
 /// One `sessionDetached` frame, surfaced so the Terminal screen can react.
@@ -185,11 +189,15 @@ final class AgentClient: ObservableObject {
         case .sessionAttached(let session, let windows):
             requestedSessionID = nil
             retriedAttach = false
-            attached = AttachedState(session: session, windows: windows)
+            attached = AttachedState(session: session, windows: windows, panes: [], panesWindowID: nil)
         case .sessionDetached(let reason):
             handleDetached(reason)
         case .windows(let sessionID, let windows):
             if attached?.session.id == sessionID { attached?.windows = windows }
+        case .panes(let sessionID, let windowID, let panes):
+            guard attached?.session.id == sessionID else { return }
+            attached?.panes = panes
+            attached?.panesWindowID = windowID
         case .screen(let mode, let data):
             print("CLIENT: screen \(mode.rawValue) \(data.count)B")
             pendingScreen = data
@@ -354,6 +362,12 @@ final class AgentClient: ObservableObject {
 
     func renameWindow(id: String, name: String) {
         send(.windowRename(id: id, name: name))
+    }
+
+    // MARK: - Panes
+
+    func selectPane(id: String) {
+        send(.paneSelect(id: id))
     }
 
     // MARK: - Terminal I/O

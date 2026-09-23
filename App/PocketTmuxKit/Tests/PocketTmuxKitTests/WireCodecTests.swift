@@ -17,6 +17,7 @@ final class WireCodecTests: XCTestCase {
             .windowCreate,
             .windowKill(id: "@4"),
             .windowRename(id: "@4", name: "logs"),
+            .paneSelect(id: "%5"),
             .input(Data([0x1b, 0x5b, 0x41, 0x00, 0xff])),
             .paste("multi\nline\ttext ✓"),
             .resize(cols: 45, rows: 27),
@@ -30,13 +31,16 @@ final class WireCodecTests: XCTestCase {
 
     func testServerRoundTrip() throws {
         let session = SessionInfo(id: "$1", name: "work", windows: 2, attached: 1, created: 1, activity: 2)
-        let window = WindowInfo(id: "@1", index: 0, name: "zsh", active: true, panes: 1)
+        let window = WindowInfo(id: "@1", index: 0, name: "zsh", active: true, panes: 2)
+        let pane = PaneInfo(id: "%1", index: 0, title: "shell", active: true,
+                            width: 80, height: 24, left: 0, top: 0)
         let cases: [ServerMessage] = [
             .helloAck(host: HostIdentity(name: "Mac", agent: "1.0.0", tmux: "tmux 3.7c"), capabilities: ["paste"]),
             .sessionList([session]),
             .sessionAttached(session: session, windows: [window]),
             .sessionDetached(reason: .sessionKilled),
             .windows(sessionID: "$1", windows: [window]),
+            .panes(sessionID: "$1", windowID: window.id, panes: [pane]),
             .screen(mode: .reset, data: Data("\u{1b}[?1049h".utf8)),
             .pong(sentAt: 3.5),
             .error(code: .auth, message: "invalid token")

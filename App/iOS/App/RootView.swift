@@ -44,13 +44,14 @@ struct RootView: View {
             HostsView(sheet: $sheet, open: open)
                 .navigationDestination(for: Route.self) { route in
                     switch route {
-                    case .sessions(let id): SessionListView(profileID: id, path: $path)
-                    case .terminal: TerminalScreen()
+                    case .sessions(let id):
+                        SessionListView(profileID: id, path: $path)
+                            .task { prepareProfile(id) }
+                    case .terminal(let sessionID):
+                        TerminalScreen(sessionID: sessionID)
                     }
                 }
         }
-        .tint(Theme.vermilion)
-        .preferredColorScheme(.dark)
         .onAppear(perform: autoResume)
         .onOpenURL(perform: pair)
         .onChange(of: client.status) { status in
@@ -82,12 +83,33 @@ struct RootView: View {
     /// Connect and push Sessions once the agent answers. Already connected to
     /// this Mac → push right away.
     private func open(_ profile: HostProfile) {
-        client.connect(profile: profile)
-        if client.status == .connected, client.profileID == profile.id {
-            if path.isEmpty { path = [.sessions(profile.id)] }
-        } else {
-            pendingProfileID = profile.id
+        if client.profileID == profile.id {
+            switch client.status {
+            case .connected:
+                pendingProfileID = nil
+                if path.isEmpty { path = [.sessions(profile.id)] }
+            case .connecting, .reconnecting:
+                pendingProfileID = profile.id
+            case .idle:
+                break
+            }
+            return
         }
+
+        client.connect(profile: profile)
+        pendingProfileID = profile.id
+        if client.status == .connected {
+            pendingProfileID = nil
+            if path.isEmpty { path = [.sessions(profile.id)] }
+        }
+    }
+
+    /// A value-based NavigationLink pushes Sessions before this task runs.
+    /// Starting the connection here keeps the link itself a native navigation
+    /// interaction while preserving the same auto-resume/deep-link path.
+    private func prepareProfile(_ id: HostProfile.ID) {
+        guard let profile = store.profile(id) else { return }
+        open(profile)
     }
 
     /// Mirror of the old `didAutoConnect`: one Mac (or a last-used one) opens
@@ -111,8 +133,7 @@ struct RootView: View {
         guard let name = Self.autoAttachName, !didAutoAttach, path.count == 1,
               let session = sessions.first(where: { $0.name == name }) else { return }
         didAutoAttach = true
-        client.attach(sessionID: session.id)
-        path.append(.terminal)
+        path.append(.terminal(sessionID: session.id))
     }
     #endif
 }

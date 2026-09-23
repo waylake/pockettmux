@@ -3,7 +3,8 @@ import PocketTmuxAgent
 import PocketTmuxKit
 import SwiftUI
 
-/// Settings scene: General / Network / Security / Advanced / About.
+/// Standard macOS Settings scene. Categories use the system tab style and all
+/// values use native Form controls.
 struct SettingsView: View {
     @ObservedObject var controller: AgentController
 
@@ -37,27 +38,28 @@ private struct GeneralTab: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Launch at login", isOn: Binding(
+                Toggle("Launch at Login", isOn: Binding(
                     get: { controller.launchAtLogin },
                     set: { controller.setLaunchAtLogin($0) }
                 ))
                 if let error = controller.launchAtLoginError {
-                    Text(error).font(MacTheme.mono(11)).foregroundStyle(MacTheme.shu)
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
                 }
-                Toggle("Start agent when the app launches", isOn: $autoStart)
+                Toggle("Start Agent When the App Launches", isOn: $autoStart)
             }
+
             Section {
-                Toggle("Keep Mac awake while an iPhone is attached", isOn: $keepAwake)
+                Toggle("Keep Mac Awake While an iPhone Is Attached", isOn: $keepAwake)
                     .onChange(of: keepAwake) { controller.restartIfRunning() }
-                Toggle("Advertise on the local network (Bonjour)", isOn: $bonjour)
+                Toggle("Advertise on the Local Network (Bonjour)", isOn: $bonjour)
                     .onChange(of: bonjour) { controller.restartIfRunning() }
             }
+
             Section {
-                TextField("Name shown on iPhone", text: $draftName, prompt: Text(HostInfo.computerName))
-                    .font(MacTheme.mono(12))
+                TextField("Name Shown on iPhone", text: $draftName, prompt: Text(HostInfo.computerName))
                     .onSubmit(commitName)
                 Text("Leave empty to use this Mac's name.")
-                    .font(MacTheme.mono(11))
                     .foregroundStyle(.secondary)
             }
         }
@@ -85,33 +87,35 @@ private struct NetworkTab: View {
     var body: some View {
         Form {
             Section {
-                HStack {
-                    TextField("Port", text: $draftPort)
-                        .font(MacTheme.mono(12))
-                        .onSubmit(applyPort)
-                    Button("Apply", action: applyPort)
-                        .disabled(Int(draftPort) == port)
+                LabeledContent("Port") {
+                    HStack {
+                        TextField("Port", text: $draftPort)
+                            .onSubmit(applyPort)
+                        Button("Apply", action: applyPort)
+                            .disabled(Int(draftPort) == port)
+                    }
                 }
                 Text(portNote ?? "1024–65535, default \(WireProtocol.defaultPort). Applying restarts the agent.")
-                    .font(MacTheme.mono(11))
-                    .foregroundStyle(portNote == nil ? Color.secondary : MacTheme.shu)
+                    .foregroundStyle(portNote == nil ? Color.secondary : Color.red)
             }
+
             Section("Addresses") {
                 if controller.addresses.isEmpty {
-                    Text("No network interface is up")
-                        .font(MacTheme.mono(12))
+                    Label("No Network Interface Is Up", systemImage: "wifi.slash")
                         .foregroundStyle(.secondary)
-                }
-                ForEach(controller.addresses) { address in
-                    HStack {
-                        Text(address.ip).font(MacTheme.mono(12))
-                        Spacer()
-                        Text(address.label).font(MacTheme.mono(11)).foregroundStyle(.secondary)
+                } else {
+                    ForEach(controller.addresses) { address in
+                        LabeledContent(address.label) {
+                            Text(address.ip)
+                                .font(.body.monospaced())
+                                .textSelection(.enabled)
+                        }
                     }
                 }
                 Text(verbatim: "ws://<address>:\(port)\(WireProtocol.path)")
-                    .font(MacTheme.mono(11))
+                    .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
         }
         .formStyle(.grouped)
@@ -145,29 +149,32 @@ private struct SecurityTab: View {
     var body: some View {
         Form {
             Section("Token") {
-                HStack(spacing: 8) {
-                    Text(reveal ? controller.token : Format.masked(controller.token))
-                        .font(MacTheme.mono(12))
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                    Spacer()
-                    Button(reveal ? "Hide" : "Reveal") { reveal.toggle() }
-                    CopyButton(id: "token", text: controller.token, copied: $copied)
+                LabeledContent("Pairing Token") {
+                    HStack(spacing: 8) {
+                        Text(reveal ? controller.token : Format.masked(controller.token))
+                            .font(.body.monospaced())
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                        Button(reveal ? "Hide" : "Reveal") { reveal.toggle() }
+                        CopyButton(id: "token", text: controller.token, copied: $copied)
+                    }
                 }
-                Button("Regenerate token…") { confirmRegenerate = true }
+                Button("Regenerate Token…", role: .destructive) { confirmRegenerate = true }
                     .confirmationDialog("Regenerate the pairing token?", isPresented: $confirmRegenerate) {
                         Button("Regenerate", role: .destructive) { controller.regenerateToken() }
                     } message: {
                         Text("Every paired iPhone will have to pair again.")
                     }
             }
+
             Section {
-                Text("Anyone on your network with this token can use your tmux sessions. Keep it private.")
-                    .font(MacTheme.mono(11))
+                Label("Anyone on your network with this token can use your tmux sessions. Keep it private.",
+                      systemImage: "lock.shield")
                     .foregroundStyle(.secondary)
                 Text("Stored in \(TokenStore.fileURL.path) (shared with pockettmuxd).")
-                    .font(MacTheme.mono(11))
+                    .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
         }
         .formStyle(.grouped)
@@ -186,25 +193,29 @@ private struct AdvancedTab: View {
         Form {
             Section("tmux") {
                 LabeledContent("Detected") {
-                    Text(controller.autoDetectedTmuxPath ?? "not found").font(MacTheme.mono(12))
+                    Text(controller.autoDetectedTmuxPath ?? "Not Found")
+                        .font(.body.monospaced())
+                        .textSelection(.enabled)
                 }
                 LabeledContent("Version") {
-                    Text(controller.tmuxVersion).font(MacTheme.mono(12))
+                    Text(controller.tmuxVersion)
+                        .font(.body.monospaced())
                 }
-                HStack {
-                    TextField("Override path", text: $draftPath, prompt: Text("auto-detect"))
-                        .font(MacTheme.mono(12))
-                        .onSubmit(commitPath)
-                    Button("Browse…", action: browse)
+                LabeledContent("Override Path") {
+                    HStack {
+                        TextField("Override path", text: $draftPath, prompt: Text("Auto-detect"))
+                            .onSubmit(commitPath)
+                        Button("Browse…", action: browse)
+                    }
                 }
                 if !draftPath.isEmpty, TmuxLocator.resolve(override: draftPath) == nil {
-                    Text("Not an executable file.")
-                        .font(MacTheme.mono(11))
-                        .foregroundStyle(MacTheme.shu)
+                    Label("Not an executable file.", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
                 }
             }
+
             Section("Log") {
-                Button("Open log") {
+                Button("Open Agent Log", systemImage: "doc.text.magnifyingglass") {
                     openWindow(id: WindowID.log)
                     NSApp.activate()
                 }
@@ -246,14 +257,14 @@ private struct AboutTab: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("PocketTmux for Mac") { Text(version).font(MacTheme.mono(12)) }
-                LabeledContent("Agent") { Text(AgentInfo.version).font(MacTheme.mono(12)) }
-                LabeledContent("Protocol") { Text("v\(WireProtocol.version)").font(MacTheme.mono(12)) }
+                LabeledContent("PocketTmux for Mac", value: version)
+                LabeledContent("Agent", value: AgentInfo.version)
+                LabeledContent("Protocol", value: "v\(WireProtocol.version)")
             }
             Section {
-                Link("GitHub — waylake/pockettmux", destination: URL(string: "https://github.com/waylake/pockettmux")!)
-                Text("MIT License")
-                    .font(MacTheme.mono(11))
+                Link("GitHub — waylake/pockettmux",
+                     destination: URL(string: "https://github.com/waylake/pockettmux")!)
+                Label("MIT License", systemImage: "doc.text")
                     .foregroundStyle(.secondary)
             }
         }
