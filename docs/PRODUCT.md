@@ -17,10 +17,12 @@ That shapes three non-negotiables:
 1. **Two-way, low-latency input.** Every key the phone sends is a tmux key in
    the real pane (`send-keys -H`), including Esc/Ctrl/arrows/F-keys. The
    accessory keyboard is part of the product, not a nicety.
-2. **The pane you see is the pane.** No screen scraping, no polling: tmux
-   control mode streams the pane's output; the first frame is rebuilt from
+2. **The pane you select is a real tmux pane.** No screen scraping, no polling:
+   tmux control mode streams that pane's output; the first frame is rebuilt from
    tmux's own per-pane state (alternate screen, mouse reporting, cursor keys,
-   scrollback, cursor position) so a TUI that started hours ago looks right.
+   scrollback, cursor position) so a TUI that started hours ago looks right. In
+   a split window the selected pane gets the phone's full width; the split is
+   restored when the phone detaches.
 3. **Zero friction to pair.** Open the Mac app → *Pair iPhone…* → scan. Same
    Wi-Fi Macs also show up by themselves (Bonjour). Tailscale works with the
    QR/link.
@@ -91,8 +93,8 @@ tokens, TLS, remote access outside LAN/Tailscale.
 
 ```
 Macs ──▶ Sessions ──▶ Terminal
- │          │             ├ status bar: ● session · window · ⌨︎ ▣ …
- │          │             ├ window strip: [0:zsh] [1:pi] [+]
+ │          │             ├ navigation bar: session · layout · paste · more
+ │          │             │  layout menu → windows + panes
  │          │             └ SwiftTerm + accessory keyboard
  │          └ live list · new · rename · kill · attach
  └ saved Macs · nearby Macs (Bonjour) · add (QR / manual) · settings
@@ -109,12 +111,16 @@ Pull to refresh (the list is also pushed live). New (name validated the way
 tmux validates), Rename, Kill (confirmed). Connection row: `Connected · tmux
 3.7c · 12 ms` (RTT from a 10 s ping), `Reconnecting…`, or the error.
 
-**Terminal.** Full screen. Status bar (back = detach, state dot, session,
-window; dismiss-keyboard, paste, menu: new/rename/kill window, font −/+,
-detach). Window strip: tap to switch, long-press to rename/kill, `+` for a
-new window — switching re-primes the screen from tmux, so a window that was
-running vim shows vim, cursor in the right place. Swipe-to-scroll: on the
-alternate screen the drag becomes SGR wheel events (pi fullscreen, Claude
+**Terminal.** Full screen under the standard navigation bar. The title shows
+connection state and the session. A native toolbar menu keeps **Window** and
+**Pane** as separate submenus: create/select windows, select the phone's pane
+in a split window, paste, hide the keyboard, rename/kill the active window,
+change font size, and detach. The selected pane is temporarily zoomed to the
+phone grid so a horizontal or vertical split never clips a TUI in half; the
+original split returns on detach. Switching window or pane re-primes the screen
+from tmux, so a window that was running vim shows vim with the cursor in the
+right place. Swipe-to-scroll: on
+the alternate screen the drag becomes SGR wheel events (pi fullscreen, Claude
 Code, opencode) or cursor keys (less, man, vim); on the normal screen it is
 the emulator's own scrollback (primed with up to 2000 lines of history).
 Bell → haptic. Screen stays awake while on this screen (setting).
@@ -136,33 +142,30 @@ Bell → haptic. Screen stays awake while on this screen (setting).
 
 ### 4.3 Non-goals (iPhone)
 
-iPad layout, multiple simultaneous Macs, file transfer, split panes (the
-active pane of a window is what the phone shows; multi-pane windows are a
-documented simplification), TLS.
+iPad layout, multiple simultaneous Macs, file transfer, rendering multiple panes
+side-by-side on one phone screen, TLS. Pane selection itself is supported: the
+phone views and drives one full-width pane at a time.
 
-## 5. Design language — Japanese dev-tool sensibility, English copy
+## 5. Interface — native Apple UI
 
-Quiet, monospaced, restrained: mono small-caps section labels (`SESSIONS`,
-`NEARBY MACS`), no gradients, no big shadows, no emoji, no corner radius
-above 6 pt, standard controls. Data and status in monospace, body in SF.
+PocketTmux feels like an iPhone app and a Mac app first. It uses Apple's
+standard components and platform conventions rather than a separate visual
+theme:
 
-Palette — traditional Japanese colors on terminal ink (the iPhone app is
-always dark; the Mac app follows the system appearance and uses the accent
-and status colors only):
+- iPhone: `NavigationStack`, `List`, `Form`, sheets, toolbars, swipe actions,
+  context menus, alerts, system empty states, and Dynamic Type.
+- Mac: `MenuBarExtra`, the `Settings` scene, grouped forms, lists, menus,
+  standard focus, keyboard behavior, and system window chrome.
+- Light Mode, Dark Mode, Increase Contrast, Reduce Motion, and the user's
+  accent color are respected.
+- SF Symbols and semantic colors carry state; color is never the only signal.
+- Ordinary text uses system text styles. Monospaced text is limited to the
+  terminal, logs, and technical values such as addresses, paths, and tokens.
 
-| Role | Name | Hex |
-|---|---|---|
-| background | 墨 sumi | `#0B0D11` |
-| surface | 藍墨 aizumi | `#12161D` / `#181E28` |
-| text | 和紙 washi | `#E4E0D4` |
-| muted | 鼠 nezumi | `#8A8B8D` |
-| accent / attach / destructive | 朱 shu | `#E0584C` |
-| warn / connecting | 山吹 yamabuki | `#E0A44C` |
-| connected / success | 萌葱 moegi | `#43A885` |
-| info / link | 藍 ai | `#4A6FA5` |
-
-Status dot vocabulary everywhere: moegi = connected/running, yamabuki =
-connecting/reconnecting, muted = idle/stopped, shu = error.
+The intentionally specialized surfaces are SwiftTerm, QR scanning/rendering,
+and terminal-specific gestures. Everything around them remains native. The
+full contract and Apple research sources are in
+[UI_GUIDELINES.md](UI_GUIDELINES.md).
 
 ## 6. Verified facts that shaped v1 (tmux 3.7c)
 
@@ -177,10 +180,14 @@ connecting/reconnecting, muted = idle/stopped, shu = error.
   attached the agent pins the window it looks at (`resize-window` +
   `window-size manual`) and unpins on detach so the Mac client re-asserts its
   size (TROUBLESHOOTING §2).
+- A split window shares that geometry across panes. tmux 3.7's `active-pane`
+  client flag plus `resize-pane -Z` / `switch-client -Z` lets the phone select
+  and temporarily zoom one pane without destroying the split; the agent undoes
+  phone-owned zoom on window switch or detach (TROUBLESHOOTING §4).
 - Bracketed paste is tmux's job: `load-buffer` + `paste-buffer -p` wraps the
   text in `ESC[200~ … ESC[201~` only if the pane asked for it.
 
 ## 7. Release scope
 
 **v1.0** = everything above. See [ROADMAP.md](ROADMAP.md) for what comes
-after (TLS, iPad, pane picker, notifications, Homebrew tap, App Store).
+after (TLS, iPad, notifications, Homebrew tap, App Store).

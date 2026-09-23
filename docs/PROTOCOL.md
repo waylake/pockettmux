@@ -32,7 +32,7 @@ The first client frame **must** be `hello`, within 10 s:
 - Success →
 
 ```json
-{"type":"hello.ack","payload":{"host":{"name":"Doyeon's MacBook Pro","agent":"1.0.0","tmux":"tmux 3.7c"},"caps":["paste","windows","attach.size","bonjour"]}}
+{"type":"hello.ack","payload":{"host":{"name":"Doyeon's MacBook Pro","agent":"1.0.0","tmux":"tmux 3.7c"},"caps":["paste","windows","panes","attach.size","bonjour"]}}
 ```
 
 `caps` lets a client gate UI on agent features.
@@ -44,14 +44,15 @@ The first client frame **must** be `hello`, within 10 s:
 | `session.list` | `{}` | Reply `session.list` |
 | `session.create` | `{name}` | `tmux new-session -d -s name`; name validated (§6); then a `session.list` push |
 | `session.rename` | `{id, name}` | `rename-session`; then `session.list` push |
-| `session.attach` | `{id, cols?, rows?}` | Spawn `tmux -CC attach -t id`. With `cols/rows` the window is sized **before** the first paint. Replies `session.attached` then `screen{mode:"reset"}`. Re-attaching the already-attached session is a no-op. |
+| `session.attach` | `{id, cols?, rows?}` | Spawn `tmux -CC attach-session -f active-pane,ignore-size -t id`. With `cols/rows` a selected pane in a split window is zoomed and its window is sized **before** the first paint. Replies `session.attached`, `panes`, then `screen{mode:"reset"}`. Re-attaching the already-attached session is a no-op. |
 | `session.detach` | `{}` | Control client leaves; reply `session.detached{reason:"requested"}` |
 | `session.kill` | `{id}` | `kill-session` (detaches first if attached); `session.list` push |
 | `window.select` | `{id}` | `select-window`; followed by `screen{reset}` + `windows` push |
 | `window.create` | `{}` | `new-window` in the attached session; becomes active → `screen{reset}` + `windows` |
 | `window.kill` | `{id}` | `kill-window`; `windows` push |
 | `window.rename` | `{id, name}` | `rename-window`; `windows` push |
-| `input` | `{data: base64}` | Raw key bytes → `send-keys -H` to the active pane (coalesced ~16 ms) |
+| `pane.select` | `{id}` | Select one pane in the phone's active window; the selected pane is zoomed to the full phone grid, followed by `panes` + `screen{reset}` |
+| `input` | `{data: base64}` | Raw key bytes → `send-keys -H` to the phone-selected pane (coalesced ~16 ms) |
 | `paste` | `{text}` | `load-buffer` + `paste-buffer -p` (bracketed paste iff the pane asked for it) |
 | `resize` | `{cols, rows}` | `resize-window` + `refresh-client -C`; debounced 250 ms on the agent |
 | `ping` | `{sentAt}` | Reply `pong{sentAt}` (RTT = now − sentAt) |
@@ -69,12 +70,15 @@ passed to `-t`.
 | `session.attached` | `{session:{…}, windows:[{id,index,name,active,panes}]}` | Control client attached |
 | `session.detached` | `{reason}` | `requested` · `sessionKilled` (session gone: kill-session, server exit) · `replaced` (another attach on this connection) · `controlExited` (tmux -CC ended otherwise) |
 | `windows` | `{sessionID, windows:[…]}` | Any window change while attached (add/close/rename/select/layout) |
-| `screen` | `{mode:"reset"\|"update", data: base64}` | `reset` = a full repaint that starts with a clear (attach, window/pane switch, reconnect) — just feed it; `update` = live pane output, coalesced into ~16 ms frames |
+| `panes` | `{sessionID, windowID, panes:[{id,index,title,active,width,height,left,top}]}` | Active-window pane list; `active` is the pane selected by this phone. Pushed after attach, pane selection, split/close/layout changes |
+| `screen` | `{mode:"reset"\|"update", data: base64}` | `reset` = a full repaint that starts with a clear (attach, window/pane switch, reconnect) — just feed it; `update` = live output from the selected pane, coalesced into ~16 ms frames |
 | `pong` | `{sentAt}` | Reply to `ping` |
 | `error` | `{code, message}` | `auth` · `bad_frame` · `unsupported` (unknown type after auth) · `tmux` (command failed) · `not_attached` |
 
 Unknown frame **types** are ignored by both sides (forward compatibility);
-only malformed envelopes are errors.
+only malformed envelopes are errors. `panes` and `pane.select` are additive v2
+frames, so `hello.v` remains 2; a client only offers pane selection after it
+has received a pane list from an agent advertising the `panes` capability.
 
 ## 5. The `reset` frame (screen priming)
 
@@ -118,6 +122,9 @@ service to `host:port`. Tailscale does not carry mDNS — use the QR/link.
 
 ## 9. Version history
 
+- **v2 additive (Unreleased)** — adds `panes` / `pane.select`, client-scoped
+  pane selection, and full-width pane zoom with detach restoration. Existing
+  v2 peers remain compatible through unknown-frame handling.
 - **v2 (1.0.0)** — this document. Adds client identity in `hello`, host
   identity in `hello.ack`, windows (`session.attached.windows`, `windows`,
   `window.*`), `session.rename`, `paste`, attach size hint,

@@ -3,24 +3,26 @@ import PocketTmuxAgent
 import PocketTmuxKit
 import SwiftUI
 
-/// The menu-bar panel: agent status + addresses, connected iPhones,
-/// tmux sessions, footer actions. ~320pt wide.
+/// Native menu-bar utility panel. Lists, sections, controls, status symbols,
+/// menus, and destructive confirmation are supplied by the system.
 struct MenuPanelView: View {
     @ObservedObject var controller: AgentController
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HeaderView(controller: controller)
-            Divider()
-            ClientsSection(clients: controller.clients, pair: showPairing)
-            Divider()
-            SessionsSection(controller: controller)
+        VStack(spacing: 0) {
+            List {
+                AgentSection(controller: controller)
+                ClientsSection(clients: controller.clients, pair: showPairing)
+                SessionsSection(controller: controller)
+            }
+            .listStyle(.inset)
+
             Divider()
             footer
         }
-        .frame(width: 320)
+        .frame(width: 340, height: 420)
         .onAppear { controller.beginPolling() }
         .onDisappear { controller.endPolling() }
     }
@@ -35,10 +37,8 @@ struct MenuPanelView: View {
             Spacer()
             Button("Quit") { NSApp.terminate(nil) }
         }
-        .buttonStyle(.link)
-        .font(.system(size: 12))
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     private func showPairing() {
@@ -47,53 +47,46 @@ struct MenuPanelView: View {
     }
 }
 
-// MARK: - Header
+// MARK: - Agent
 
-private struct HeaderView: View {
+private struct AgentSection: View {
     @ObservedObject var controller: AgentController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        Section("Agent") {
             HStack(spacing: 8) {
-                StatusDot(state: dotState)
+                StatusIndicator(state: dotState, title: title)
                 Text(title)
-                    .font(MacTheme.mono(12, .medium))
-                    .foregroundStyle(controller.errorText != nil ? MacTheme.shu : .primary)
                     .lineLimit(2)
                 Spacer(minLength: 8)
-                if controller.errorText != nil {
-                    Button("Retry") { controller.start() }
-                        .buttonStyle(.link)
-                        .font(.system(size: 12))
-                }
-                Toggle("", isOn: Binding(
+                Toggle("Agent", isOn: Binding(
                     get: { controller.hasServer },
                     set: { $0 ? controller.start() : controller.stop() }
                 ))
-                .toggleStyle(.switch)
-                .controlSize(.small)
                 .labelsHidden()
             }
+
             if !controller.addresses.isEmpty {
                 Text(controller.addresses.map(\.ip).joined(separator: " · "))
-                    .font(MacTheme.mono(10))
+                    .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 16)
-                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+
+            if controller.errorText != nil {
+                Button("Retry") { controller.start() }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
     }
 
-    private var dotState: StatusDot.State {
+    private var dotState: StatusIndicator.State {
         if controller.errorText != nil { return .error }
         return controller.isRunning ? .running : .stopped
     }
 
     private var title: String {
         if let error = controller.errorText { return error }
-        if controller.isRunning { return "Agent running · port \(controller.port)" }
+        if controller.isRunning { return "Running on Port \(controller.port)" }
         return "Stopped"
     }
 }
@@ -105,43 +98,38 @@ private struct ClientsSection: View {
     let pair: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionLabel("CONNECTED IPHONES")
+        Section("Connected iPhones") {
             if clients.isEmpty {
-                HStack(spacing: 4) {
-                    Text("No iPhone connected —")
+                HStack {
+                    Text("No iPhone connected")
                         .foregroundStyle(.secondary)
-                    Button("Pair iPhone…", action: pair)
-                        .buttonStyle(.link)
+                    Spacer()
+                    Button("Pair…", action: pair)
                 }
-                .font(.system(size: 12))
             } else {
                 ForEach(clients) { client in
-                    HStack(spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Image(systemName: "iphone.gen3")
-                            .foregroundStyle(client.attachedSession == nil ? MacTheme.muted : MacTheme.moegi)
-                            .font(.system(size: 12))
-                        VStack(alignment: .leading, spacing: 1) {
+                            .foregroundStyle(client.attachedSession == nil ? Color.secondary : Color.green)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
                             Text(client.displayName)
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.headline)
                                 .lineLimit(1)
                             Text(detail(client))
-                                .font(MacTheme.mono(10))
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
-                        Spacer()
                     }
                 }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
     }
 
     private func detail(_ client: AgentClientInfo) -> String {
-        let what = client.attachedSession.map { "attached to \($0.name)" } ?? "browsing"
-        return "\(what) · \(client.remoteAddress) · \(Format.ago(client.connectedAt))"
+        let activity = client.attachedSession.map { "attached to \($0.name)" } ?? "browsing"
+        return "\(activity) · \(client.remoteAddress) · \(Format.ago(client.connectedAt))"
     }
 }
 
@@ -149,108 +137,87 @@ private struct ClientsSection: View {
 
 private struct SessionsSection: View {
     @ObservedObject var controller: AgentController
-    @State private var pendingKill: String?
+    @State private var pendingKill: SessionInfo?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionLabel("TMUX SESSIONS")
+        Section("tmux Sessions") {
             if controller.sessions.isEmpty {
-                Text(controller.tmuxPath == nil ? "tmux not found" : "No tmux sessions")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                Label(controller.tmuxPath == nil ? "tmux Not Found" : "No tmux Sessions",
+                      systemImage: "terminal")
+                    .foregroundStyle(controller.tmuxPath == nil ? Color.red : Color.secondary)
             } else {
                 ForEach(controller.sessions) { session in
-                    if pendingKill == session.id {
-                        killConfirm(session)
-                    } else {
-                        SessionRow(session: session,
-                                   phoneAttached: controller.attachedSessionIDs.contains(session.id),
-                                   open: { controller.openInTerminal(session: session) },
-                                   kill: { pendingKill = session.id })
+                    HStack(spacing: 8) {
+                        Button { controller.openInTerminal(session: session) } label: {
+                            sessionLabel(session)
+                        }
+                        .buttonStyle(.plain)
+
+                        Menu {
+                            Button("Open in Terminal", systemImage: "terminal") {
+                                controller.openInTerminal(session: session)
+                            }
+                            Divider()
+                            Button("Kill Session…", systemImage: "trash", role: .destructive) {
+                                pendingKill = session
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .accessibilityLabel("Actions for \(session.name)")
                     }
                 }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .onChange(of: controller.sessions) { _, sessions in
-            if let pendingKill, !sessions.contains(where: { $0.id == pendingKill }) { self.pendingKill = nil }
-        }
-    }
-
-    private func killConfirm(_ session: SessionInfo) -> some View {
-        HStack(spacing: 10) {
-            Text("Kill \(session.name)?")
-                .font(MacTheme.mono(12, .medium))
-                .foregroundStyle(MacTheme.shu)
-                .lineLimit(1)
-            Spacer()
-            Button("Cancel") { pendingKill = nil }
-            Button("Kill") {
-                controller.killSession(id: session.id)
+        .confirmationDialog(L10n.killSessionTitle(pendingKill?.name ?? ""),
+                            isPresented: killBinding, titleVisibility: .visible) {
+            Button("Kill", role: .destructive) {
+                if let session = pendingKill { controller.killSession(id: session.id) }
                 pendingKill = nil
             }
-            .tint(MacTheme.shu)
+            Button("Cancel", role: .cancel) { pendingKill = nil }
+        } message: {
+            Text("The session and all of its windows will be killed.")
         }
-        .buttonStyle(.link)
-        .font(.system(size: 12))
-        .padding(.vertical, 2)
+        .onChange(of: controller.sessions) { _, sessions in
+            if let pendingKill, !sessions.contains(where: { $0.id == pendingKill.id }) {
+                self.pendingKill = nil
+            }
+        }
     }
-}
 
-private struct SessionRow: View {
-    let session: SessionInfo
-    let phoneAttached: Bool
-    let open: () -> Void
-    let kill: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
+    private func sessionLabel(_ session: SessionInfo) -> some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(session.name)
-                        .font(MacTheme.mono(12, .semibold))
+                        .font(.headline)
                         .lineLimit(1)
-                    if phoneAttached {
+                    if controller.attachedSessionIDs.contains(session.id) {
                         Image(systemName: "iphone.gen3")
-                            .font(.system(size: 10))
-                            .foregroundStyle(MacTheme.moegi)
+                            .foregroundStyle(.green)
+                            .accessibilityLabel("Attached on iPhone")
                     }
                 }
                 Text("\(Format.windows(session.windows)) · \(Format.attached(session.attached)) · \(Format.ago(session.activity))")
-                    .font(MacTheme.mono(10))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                    .monospacedDigit()
                     .lineLimit(1)
             }
             Spacer()
-            if hovering {
-                Button(action: open) {
-                    Image(systemName: "terminal")
-                }
-                .help("Open in Terminal")
-                Button(action: kill) {
-                    Image(systemName: "xmark")
-                }
-                .help("Kill session")
-                .foregroundStyle(MacTheme.shu)
-            }
         }
-        .buttonStyle(.borderless)
-        .font(.system(size: 11))
-        .padding(.vertical, 2)
-        .padding(.horizontal, 4)
         .contentShape(Rectangle())
-        .background(
-            RoundedRectangle(cornerRadius: MacTheme.radius)
-                .fill(hovering ? Color.primary.opacity(0.06) : .clear)
-        )
-        .padding(.horizontal, -4)
-        .onHover { hovering = $0 }
-        .contextMenu {
-            Button("Open in Terminal", action: open)
-            Divider()
-            Button("Kill Session…", role: .destructive, action: kill)
-        }
     }
+
+    private var killBinding: Binding<Bool> {
+        Binding(get: { pendingKill != nil }, set: { if !$0 { pendingKill = nil } })
+    }
+}
+
+private enum L10n {
+    static func killSessionTitle(_ name: String) -> String { "Kill \(name)?" }
 }

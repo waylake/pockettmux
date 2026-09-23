@@ -1,10 +1,11 @@
 import Foundation
 
-/// UI strings. English copy, mono-cased where the aesthetic calls for it.
+/// User-facing copy. The interface uses Apple's standard labels and sentence
+/// case; monospaced styling is reserved for technical values in the UI.
 enum L { // swiftlint:disable:this type_name
     // App
     static let appName        = "PocketTmux"
-    static let tagline        = "YOUR MAC'S TMUX, IN YOUR POCKET"
+    static let macs           = "Macs"
 
     // Connection
     static let connect        = "Connect"
@@ -33,12 +34,9 @@ enum L { // swiftlint:disable:this type_name
     static let scanQR         = "Scan QR"
     static let enterManually  = "Enter manually"
     static let neverConnected = "never connected"
-    static let onboardingTitle = "Pair your Mac"
-    static let onboardingSteps = [
-        "1. Install PocketTmux on your Mac and open it from the menu bar.",
-        "2. Choose Pair iPhone…",
-        "3. Scan the QR."
-    ]
+    static let onboardingTitle = "Pair Your Mac"
+    static let onboardingDescription =
+        "Open PocketTmux on your Mac, choose Pair iPhone, then scan the code shown there."
     static let cameraDenied   = "Camera access is off — enable it in Settings → PocketTmux, or enter the details manually."
     static let scanHint       = "Point the camera at the QR shown by PocketTmux on your Mac."
     static let forgetBody     = "The saved address and token will be removed from this iPhone."
@@ -53,15 +51,24 @@ enum L { // swiftlint:disable:this type_name
     static let sessionName    = "Name of the new tmux session"
     static let renameSession  = "Rename session"
     static let kill           = "Kill"
-    static let emptySessions  = "No tmux sessions"
-    static let emptyHint      = "$ tmux new -s main"
+    static let emptySessions  = "No tmux Sessions"
+    static let emptyDescription = "Create a session to start using tmux from this Mac."
+    static let attachedOnIPhone = "Attached on iPhone"
     static let invalidName    = "Names can't contain : or . or start with -"
     static func killSessionTitle(_ name: String) -> String { "Kill session \(name)?" }
     static let killSessionBody = "The session and its windows will be killed. This cannot be undone."
 
     // Terminal
-    static let newWindow      = "New window"
-    static let renameWindow   = "Rename window"
+    static let newWindow      = "New Window"
+    static let windowsMenu    = "Choose Window"
+    static let panesMenu      = "Choose Pane"
+    static let sessionLayout  = "Session Layout"
+    static let window         = "Window"
+    static let pane           = "Pane"
+    static let noWindows      = "No windows"
+    static let hideKeyboard   = "Hide Keyboard"
+    static let more           = "More"
+    static let renameWindow   = "Rename Window"
     static let killWindow     = "Kill window"
     static func killWindowTitle(_ name: String) -> String { "Kill window \(name)?" }
     static let killWindowBody = "Every pane in the window will be killed."

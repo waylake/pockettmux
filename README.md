@@ -29,10 +29,7 @@ over Wi-Fi or Tailscale, with no cloud in between.
 
 ---
 
-The pane your Mac's terminals see is the pane your phone renders. A key tapped on the phone is a
-tmux key in the real pane; the pane's bytes stream back and are drawn by a native VT engine
-(SwiftTerm). **tmux stays the single source of truth** — the phone is one more client, exactly like
-a terminal window on the Mac.
+The tmux pane you select is the pane your phone renders. A key tapped on the phone is a tmux key in that real pane; its bytes stream back and are drawn by a native VT engine (SwiftTerm). In a split window the phone temporarily zooms the selected pane to full width and restores the split on detach. **tmux stays the single source of truth** — the phone is one more client, exactly like a terminal window on the Mac.
 
 ```mermaid
 flowchart LR
@@ -87,9 +84,19 @@ Two apps, one Swift package, no third-party services and no daemon to install be
 |---|---|
 | **Macs** | Many saved Macs (Keychain), nearby Macs over Bonjour, add by QR / link / manual entry |
 | **Sessions** | Live list with window and client counts, attach, create, rename, kill, RTT next to the status dot |
-| **Terminal** | SwiftTerm rendering (TrueColor, alternate screen, mouse reporting), accessory keyboard (<kbd>esc</kbd> <kbd>ctrl</kbd> <kbd>⇥</kbd> <kbd>~</kbd> <kbd>\|</kbd> arrows), window strip (switch / new / rename / kill), paste with bracketed-paste semantics, font size, haptic bell, keep-awake |
+| **Terminal** | SwiftTerm rendering (TrueColor, alternate screen, mouse reporting), accessory keyboard (<kbd>esc</kbd> <kbd>ctrl</kbd> <kbd>⇥</kbd> <kbd>~</kbd> <kbd>\|</kbd> arrows), native Window/Pane menu (switch / new / rename / kill; one full-width pane at a time), paste with bracketed-paste semantics, font size, haptic bell, keep-awake |
 | **Scrolling** | Swipe scrollback inside TUIs *and* shells — the first paint after any attach is rebuilt from tmux's own state, so nothing is blank or garbled ([why this is hard](docs/TROUBLESHOOTING.md#3-nothing-scrolls--not-in-a-tui-not-in-the-shell-scrollback)) |
 | **Resilience** | Jittered backoff reconnect with automatic re-attach after Wi-Fi drops, backgrounding and Mac sleep |
+
+### Native by design
+
+The apps do not impose a separate PocketTmux theme. Macs and Sessions use native
+lists and navigation; settings and pairing use native forms; the Mac utility and
+Settings scenes use standard macOS behavior. Light/Dark Mode, Increase Contrast,
+Dynamic Type, SF Symbols, keyboard focus, and accessibility are platform
+responsibilities. Only the terminal, QR flow, logs, and technical values keep a
+specialized presentation. The complete Apple research and review contract is in
+[docs/UI_GUIDELINES.md](docs/UI_GUIDELINES.md).
 
 ## Install
 
@@ -135,11 +142,11 @@ sequenceDiagram
     P->>A: hello{v:2, token}
     A-->>P: hello.ack{host, caps}
     P->>A: session.attach{id, cols, rows}
-    A->>T: forkpty → tmux -CC attach -t $1
-    A->>T: resize-window + window-size manual
+    A->>T: forkpty → tmux -CC attach -f active-pane,ignore-size -t $1
+    A->>T: selected pane zoom (split) + resize-window/manual
     A->>T: display-message #{alternate_on}… · capture-pane -p -e
     A-->>P: session.attached{session, windows}
-    A-->>P: screen{reset} — primed escapes + content + cursor
+    A-->>P: panes + screen{reset} — selected pane, escapes + content + cursor
     T-->>A: %output %7 …
     A-->>P: screen{update} every 16 ms
 ```
@@ -177,14 +184,14 @@ xcodebuild build -scheme PocketTmux -destination 'platform=iOS Simulator,name=iP
 ../scripts/start-agent.sh && ../scripts/pair.sh
 
 # tests
-swift test --package-path PocketTmuxKit                     # 23 tests: protocol, parsers, agent logic
+swift test --package-path PocketTmuxKit                     # 24 tests: protocol, parsers, agent logic
 xcodebuild test -scheme PocketTmux -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
   -derivedDataPath build/Sim -skipPackagePluginValidation   # 15 iOS unit tests
 python3 ../scripts/check-attach-prime.py                    # e2e against a running agent
 ```
 
 SwiftTerm ships a build-tool plugin whose validation step fails on Xcode 26.2 — without the flag the
-build aborts before compilation. Details in [CLAUDE.md](CLAUDE.md).
+build aborts before compilation. Details in [AGENTS.md](AGENTS.md).
 
 </details>
 
@@ -210,11 +217,12 @@ Anything protocol- or tmux-related lives in the package, never duplicated in an 
 
 | Doc | What it covers |
 |---|---|
-| [PRODUCT](docs/PRODUCT.md) | Jobs, screens, behaviour, design language, release scope |
+| [PRODUCT](docs/PRODUCT.md) | Jobs, screens, behaviour, interface direction, release scope |
+| [UI_GUIDELINES](docs/UI_GUIDELINES.md) | Native Apple UI contract, HIG research, component map, review checklist |
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | Components, request flows, decisions & alternatives, failure modes |
 | [PROTOCOL](docs/PROTOCOL.md) | Wire protocol v2: frames, priming, pairing, discovery |
 | [TECH_STACK](docs/TECH_STACK.md) | Every dependency with version, license and rationale |
-| [ROADMAP](docs/ROADMAP.md) | Shipped in v1.0; next: notifications, pane picker, TLS, iPad |
+| [ROADMAP](docs/ROADMAP.md) | Native UI + pane navigation in progress; next: notifications, TLS, iPad |
 | [TROUBLESHOOTING](docs/TROUBLESHOOTING.md) | Real failures, root causes, and the research behind each fix |
 
 ## Security model

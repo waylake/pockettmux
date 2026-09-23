@@ -1,56 +1,46 @@
 import SwiftUI
 
-/// Design system for the Mac app. Surfaces follow the system appearance
-/// (semantic colors); accent and status colors are the shared palette
-/// (traditional Japanese colors on terminal ink) the iPhone app uses.
+/// Semantic helpers only. The Mac UI follows the system appearance and accent
+/// color; fixed app palettes and custom text scales are intentionally absent.
 enum MacTheme {
-    static let sumi      = Color(0x0B0D11)   // 墨 — QR modules
-    static let washi     = Color(0xE4E0D4)   // 和紙 — QR background
-    static let shu       = Color(0xE0584C)   // 朱 — accent / error / destructive
-    static let yamabuki  = Color(0xE0A44C)   // 山吹 — connecting / warning
-    static let moegi     = Color(0x43A885)   // 萌葱 — running / connected
-    static let ai        = Color(0x4A6FA5)   // 藍 — info / link
-    static let muted     = Color.secondary   // 鼠 — idle / stopped
+    static func statusColor(_ state: StatusIndicator.State) -> Color {
+        switch state {
+        case .running: return .green
+        case .connecting: return .orange
+        case .stopped: return .secondary
+        case .error: return .red
+        }
+    }
 
-    static let radius: CGFloat = 6
-
-    static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+    static func statusSymbol(_ state: StatusIndicator.State) -> String {
+        switch state {
+        case .running: return "checkmark.circle.fill"
+        case .connecting: return "arrow.trianglehead.2.clockwise.rotate.90.circle"
+        case .stopped: return "circle"
+        case .error: return "exclamationmark.circle.fill"
+        }
     }
 }
 
-/// Section label in mono small caps: `SESSIONS`, `CONNECTED IPHONES`.
-struct SectionLabel: View {
-    let text: String
-
-    init(_ text: String) { self.text = text }
-
-    var body: some View {
-        Text(text)
-            .font(MacTheme.mono(10, .medium))
-            .kerning(0.8)
-            .foregroundStyle(.secondary)
-    }
-}
-
-/// The 8pt status dot — one vocabulary for every screen.
-struct StatusDot: View {
+/// Status uses both symbol shape and semantic color, with a VoiceOver label.
+struct StatusIndicator: View {
     enum State { case running, connecting, stopped, error }
 
     let state: State
+    var title: String?
 
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 8, height: 8)
+        Image(systemName: MacTheme.statusSymbol(state))
+            .foregroundStyle(MacTheme.statusColor(state))
+            .accessibilityLabel(title ?? defaultTitle)
     }
 
-    private var color: Color {
+    private var defaultTitle: String {
         switch state {
-        case .running: return MacTheme.moegi
-        case .connecting: return MacTheme.yamabuki
-        case .stopped: return MacTheme.muted
-        case .error: return MacTheme.shu
+        case .running: return "Running"
+        case .connecting: return "Connecting"
+        case .stopped: return "Stopped"
+        case .error: return "Error"
         }
     }
 }
@@ -74,15 +64,5 @@ enum Format {
     /// "abcd••••••••" — enough to tell tokens apart, never the whole secret.
     static func masked(_ token: String) -> String {
         String(token.prefix(4)) + String(repeating: "•", count: max(8, token.count - 4))
-    }
-}
-
-extension Color {
-    init(_ hex: UInt32) {
-        self.init(.sRGB,
-                  red: Double((hex >> 16) & 0xFF) / 255,
-                  green: Double((hex >> 8) & 0xFF) / 255,
-                  blue: Double(hex & 0xFF) / 255,
-                  opacity: 1)
     }
 }

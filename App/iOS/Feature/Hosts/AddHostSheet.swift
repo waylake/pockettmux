@@ -1,7 +1,8 @@
 import SwiftUI
 import PocketTmuxKit
 
-/// Add / edit a Mac: scan the pairing QR, or type NAME / HOST / PORT / TOKEN.
+/// Add or edit a Mac. The form and scanner live in a standard sheet; validation,
+/// labels, controls, and the confirm action are supplied by SwiftUI.
 struct AddHostSheet: View {
     enum Mode {
         case add
@@ -61,58 +62,66 @@ struct AddHostSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                Picker("", selection: $tab) {
-                    ForEach(Tab.allCases) { t in Text(t.title).tag(t) }
+            Form {
+                Section {
+                    Picker("Pairing method", selection: $tab) {
+                        ForEach(Tab.allCases) { tab in
+                            Text(tab.title).tag(tab)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+
                 switch tab {
-                case .scan: scanner
-                case .manual: form
+                case .scan:
+                    scanner
+                case .manual:
+                    manualEntry
                 }
             }
-            .background(Theme.bg.ignoresSafeArea())
             .navigationTitle(isEdit ? L.editMac : L.addMac)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Theme.bg, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L.cancel) { dismiss() }
                 }
-                if isEdit {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(L.save) { commit(connect: false) }.disabled(validationError != nil)
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isEdit ? L.save : L.saveAndConnect) {
+                        commit(connect: !isEdit)
                     }
+                    .disabled(validationError != nil)
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     // MARK: - Scan
 
     private var scanner: some View {
-        VStack(spacing: 0) {
+        Section {
             QRScannerView(onDenied: { cameraDenied = true }, onFound: { payload in
                 guard let pairing = PairingPayload(string: payload) else { return }
                 apply(pairing)
             })
             .onAppear { cameraDenied = false }
+            .frame(maxWidth: .infinity)
+            .frame(height: 340)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay {
-                RoundedRectangle(cornerRadius: Theme.radius)
-                    .stroke(Theme.vermilion, lineWidth: 2)
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
                     .frame(width: 220, height: 220)
-                    .opacity(0.9)
             }
-            .background(Theme.bg)
-            Text(cameraDenied ? L.cameraDenied : L.scanHint)
-                .font(Theme.mono(11))
-                .foregroundStyle(cameraDenied ? Theme.yamabuki : Theme.muted)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-                .background(Theme.surface)
+            .listRowInsets(EdgeInsets())
+        } header: {
+            Text(L.scanQR)
+        } footer: {
+            if cameraDenied {
+                Label(L.cameraDenied, systemImage: "camera.fill")
+                    .foregroundStyle(.orange)
+            } else {
+                Text(L.scanHint)
+            }
         }
     }
 
@@ -122,97 +131,83 @@ struct AddHostSheet: View {
         if case .edit(let existing) = mode {
             profile = existing.applying(pairing)
         } else {
-            var p = HostProfile(pairing: pairing)
-            if pairing.name == nil, !name.isEmpty { p.name = name }
-            profile = p
+            var scannedProfile = HostProfile(pairing: pairing)
+            if pairing.name == nil, !name.isEmpty { scannedProfile.name = name }
+            profile = scannedProfile
         }
         onSave(profile, true)
     }
 
     // MARK: - Manual
 
-    private var form: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                field("NAME", text: $name, placeholder: "MacBook Pro", field: .name)
-                field("HOST", text: $host, placeholder: "100.67.189.40", field: .host, keyboard: .URL)
-                HStack(alignment: .top, spacing: 12) {
-                    field("PORT", text: $port, placeholder: String(WireProtocol.defaultPort), field: .port,
-                          keyboard: .numberPad)
-                        .frame(width: 110)
-                    field("TOKEN", text: $token, placeholder: "token", field: .token, secure: true)
+    private var manualEntry: some View {
+        Group {
+            Section("Mac") {
+                LabeledContent("Name") {
+                    TextField("MacBook Pro", text: $name)
+                        .multilineTextAlignment(.trailing)
+                        .focused($focused, equals: .name)
                 }
-                if let error = validationError, touchedAny {
-                    Text(error)
-                        .font(Theme.mono(11))
-                        .foregroundStyle(Theme.yamabuki)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                LabeledContent("Host") {
+                    TextField("100.67.189.40", text: $host)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .multilineTextAlignment(.trailing)
+                        .focused($focused, equals: .host)
                 }
-                Button { commit(connect: true) } label: {
-                    Text(L.saveAndConnect)
-                        .font(Theme.mono(14, .semibold))
-                        .tracking(1.5)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(validationError == nil ? Theme.vermilion : Theme.surface2)
-                        .foregroundStyle(validationError == nil ? Theme.paper : Theme.muted)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+                LabeledContent("Port") {
+                    TextField(String(WireProtocol.defaultPort), text: $port)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .focused($focused, equals: .port)
                 }
-                .buttonStyle(.plain)
-                .disabled(validationError != nil)
-                .padding(.top, 8)
+                LabeledContent("Token") {
+                    SecureField("Token", text: $token)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .multilineTextAlignment(.trailing)
+                        .focused($focused, equals: .token)
+                }
             }
-            .padding(20)
+
+            if let error = validationError, touchedAny {
+                Section {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
+            }
         }
         .scrollDismissesKeyboard(.interactively)
-    }
-
-    private func field(_ title: String, text: Binding<String>, placeholder: String, field: Field,
-                       keyboard: UIKeyboardType = .default, secure: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionLabel(title)
-            Group {
-                if secure {
-                    SecureField(placeholder, text: text)
-                } else {
-                    TextField(placeholder, text: text)
-                }
-            }
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .keyboardType(keyboard)
-            .font(Theme.mono(15))
-            .foregroundStyle(Theme.paper)
-            .focused($focused, equals: field)
-            .padding(12)
-            .background(Theme.surface)
-            .overlay(RoundedRectangle(cornerRadius: Theme.radius).stroke(Theme.surface2, lineWidth: 1))
-        }
     }
 
     private var touchedAny: Bool { !host.isEmpty || !token.isEmpty }
 
     private var validationError: String? {
         if host.trimmingCharacters(in: .whitespaces).isEmpty { return L.invalidHost }
-        guard let p = UInt16(port.trimmingCharacters(in: .whitespaces)), p > 0 else { return L.invalidPort }
+        guard let port = UInt16(port.trimmingCharacters(in: .whitespaces)), port > 0 else {
+            return L.invalidPort
+        }
         if token.trimmingCharacters(in: .whitespaces).isEmpty { return L.invalidTokenField }
         return nil
     }
 
     private func commit(connect: Bool) {
-        guard validationError == nil, let portValue = UInt16(port.trimmingCharacters(in: .whitespaces)) else { return }
-        let h = host.trimmingCharacters(in: .whitespaces)
-        let n = name.trimmingCharacters(in: .whitespaces)
+        guard validationError == nil,
+              let portValue = UInt16(port.trimmingCharacters(in: .whitespaces)) else { return }
+        let host = host.trimmingCharacters(in: .whitespaces)
+        let name = name.trimmingCharacters(in: .whitespaces)
         var profile: HostProfile
         if case .edit(let existing) = mode {
             profile = existing
         } else {
-            profile = HostProfile(name: h, host: h, token: "")
+            profile = HostProfile(name: host, host: host, token: "")
         }
-        profile.name = n.isEmpty ? h : n
-        profile.host = h
+        profile.name = name.isEmpty ? host : name
+        profile.host = host
         profile.port = portValue
         profile.token = token.trimmingCharacters(in: .whitespaces)
         onSave(profile, connect)
     }
+
 }

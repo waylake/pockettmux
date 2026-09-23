@@ -31,6 +31,10 @@ public struct TmuxRunner: Sendable {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "TMUX")
+        environment.removeValue(forKey: "TMUX_PANE")
+        process.environment = environment
         do { try process.run() } catch { return nil }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
@@ -83,14 +87,27 @@ public struct TmuxRunner: Sendable {
         run(["rename-window", "-t", id, name]) != nil
     }
 
-    public func selectWindow(id: String) -> Bool {
-        run(["select-window", "-t", id]) != nil
+    // MARK: Panes
+
+    public func panes(windowID: String) -> [PaneInfo] {
+        guard let out = run(["list-panes", "-t", windowID, "-F", TmuxFormats.paneList]) else { return [] }
+        return TmuxFormats.parsePanes(out)
+    }
+
+    public func windowIsZoomed(windowID: String) -> Bool {
+        run(["display-message", "-p", "-t", windowID, "#{window_zoomed_flag}"])?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ) == "1"
+    }
+
+    public func togglePaneZoom(paneID: String) -> Bool {
+        run(["resize-pane", "-Z", "-t", paneID]) != nil
     }
 
     // MARK: Pane state / content
 
-    /// Active pane of `target` (a session or window id) with the flags the
-    /// phone's emulator must be primed with.
+    /// Active pane of `target` (a session, window, or pane id) with the flags
+    /// the phone's emulator must be primed with.
     public func paneState(target: String) -> TmuxFormats.PaneState? {
         guard let out = run(["display-message", "-p", "-t", target, TmuxFormats.paneState]) else { return nil }
         return TmuxFormats.parsePaneState(out)

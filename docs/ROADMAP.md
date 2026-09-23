@@ -23,11 +23,17 @@ Planning docs, CI/release skeleton, iOS app skeleton, P0 ttyd path.
 
 ### v1.1 — quality of life
 
+- **Native Apple UI pass** *(in progress)*: standard iOS/macOS components and
+  semantic styling replace the former fixed dark theme and custom controls;
+  terminal, QR, logs, and technical values keep specialized presentation.
+  Contract and HIG research: [UI_GUIDELINES.md](UI_GUIDELINES.md).
 - **Notifications**: the Mac app (or agent) notices a pane's bell / a tmux
   `monitor-activity` hit and pushes a local notification to the phone while
   it is connected in the background ("pi is waiting for input").
-- **Pane picker**: multi-pane windows show a pane strip like the window
-  strip; the phone selects which pane to view/drive (`select-pane`).
+- **Pane navigation** *(implemented and verified)*: a
+  native nested Window/Pane menu selects the phone's pane; the selected pane
+  is zoomed to the full phone grid and the original split is restored on
+  window switch or detach. Covered by `check-attach-prime.py`.
 - **Session create with cwd/command** (`session.create{name,cwd?,cmd?}`).
 - **Homebrew tap** for `pockettmuxd` and a cask for the Mac app; Developer
   ID signing + notarization in the release workflow.

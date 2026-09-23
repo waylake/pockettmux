@@ -4,7 +4,7 @@ import PocketTmuxKit
 public enum AgentInfo {
     public static let version = "1.0.0"
     /// Capabilities announced in `hello.ack`; the phone can gate UI on them.
-    public static let capabilities = ["paste", "windows", "attach.size", "bonjour"]
+    public static let capabilities = ["paste", "windows", "panes", "attach.size", "bonjour"]
 }
 
 /// Everything the agent needs to run. Owned by the Mac app (Settings) or

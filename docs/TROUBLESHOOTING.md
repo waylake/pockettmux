@@ -175,9 +175,77 @@ default `"regular"`):
 vim pane, a shell pane and a mouse-reporting pane, asserts the first
 `screen` frame carries the right alt-screen / mouse escapes and the pane's
 content, that the pane was sized before the paint, and then exercises
-windows, input, paste, ping, detach reasons and auth failure.
+windows, split-pane full-width selection/restoration, input, paste, ping,
+detach reasons and auth failure.
 
-## 4. Nothing under "Nearby Macs" on the phone
+## 4. A split tmux window is clipped to half on the iPhone
+
+**Symptom:** The Mac has a normal side-by-side tmux split, but the phone shows
+only one narrow half. TUIs that draw a two-column layout are visibly cut off;
+selecting the other Mac pane does not give the phone a usable full-width view.
+
+**Root cause — window geometry, not output mixing.** `TmuxControl` already
+filters `%output` to one pane, but a tmux **window** has one size shared by all
+its panes. Pinning that window to a phone grid of about 45 columns while a
+horizontal split is active gives each pane roughly 22 columns. Capturing the
+selected pane cannot manufacture columns tmux did not give it.
+
+**tmux 3.7 facilities used (verified against 3.7c):**
+
+- `attach-session -f active-pane,ignore-size` gives this phone's control
+  client an independent selected pane and keeps its size from competing with
+  Mac clients;
+- `resize-pane -Z -t %pane` zooms one pane over the window without deleting or
+  flattening the split;
+- `switch-client -Z -t %pane` changes this client's pane while keeping the
+  window zoomed;
+- `window_zoomed_flag` lets the agent recognize whether zoom is present.
+
+**Fix:**
+
+1. `list-panes -F` is parsed into `PaneInfo` and pushed as `panes`; the iPhone
+   exposes Window and Pane as separate submenus in the standard toolbar `Menu`.
+2. On attach, split, selection, or a geometry mismatch, the selected pane is
+   zoomed before the window is pinned to the phone grid. Its capture therefore
+   gets the full width, not half.
+3. `pane.select{id}` switches the phone's pane, re-primes the terminal, and
+   sends subsequent keys explicitly to that pane id.
+4. The agent records only zoom it introduced. It unzooms on window switch and
+   teardown, then unpins sizing. The original split remains intact.
+
+A layout notification is not a reason to repaint unconditionally: the agent's
+own `refresh-client -C` can produce one. The pane refresh path repaints only if
+the selected pane disappeared, a split is unzoomed, or selected dimensions do
+not match the phone; otherwise it publishes the pane list only. Without that
+guard, reset/refresh/layout notifications can form a loop.
+
+**Check:** `POCKETTMUX_PORT=7699 python3 scripts/check-attach-prime.py`. Its
+pane scenario creates a real horizontal split, asserts the selected pane is
+`60x20` and zoomed, switches to the other pane, sends input, detaches, then
+asserts zoom is off and both original panes remain. It also closes the selected
+pane after re-attaching and verifies phone-owned zoom is cleared without
+altering the surviving pane.
+
+## 5. tmux commands affect the wrong window when the agent is launched inside tmux
+
+**Symptom:** A pane test creates `%57` in its test session, but a `panes` push
+mentions another window/session; `split-window` also prints no id. This happens
+when development commands, the daemon, or the Mac agent inherit `TMUX` and
+`TMUX_PANE` from a shell that is itself attached to tmux.
+
+**Root cause.** tmux uses those variables to detect that a command is being
+issued from an existing client. A child `Process` inherits them by default, and
+`forkpty` + `execv` inherits them too. A command intended as an external client
+can therefore be parsed in the launching client's context.
+
+**Fix.** `TmuxRunner.run` removes `TMUX` and `TMUX_PANE` from every short-lived
+subprocess environment. The forked control child unsets both before `execv`.
+`scripts/check-attach-prime.py` does the same for its direct `tmux` calls, so
+the regression check is safe from a tmux shell. Launching a development daemon
+with `env -u TMUX -u TMUX_PANE ...` is still useful, but it is defense in depth,
+not the product fix.
+
+## 6. Nothing under "Nearby Macs" on the phone
 
 **Symptom:** The Mac app is running but the iPhone's Macs screen shows no
 nearby Mac.
@@ -193,7 +261,7 @@ nearby Mac.
 - **Local Network permission** denied on the phone — Settings → PocketTmux
   → Local Network.
 
-## 5. "port already in use" / "tmux was not found" in the menu-bar panel
+## 7. "port already in use" / "tmux was not found" in the menu-bar panel
 
 - Another agent is on the port — usually an old `pockettmuxd` started by
   `scripts/start-agent.sh` (`lsof -nP -iTCP:7682 -sTCP:LISTEN`; stop it with
@@ -201,7 +269,7 @@ nearby Mac.
 - tmux is looked up at `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`.
   Anything else: Settings › Advanced › tmux path.
 
-## 6. The Mac app can't be opened ("unidentified developer")
+## 8. The Mac app can't be opened ("unidentified developer")
 
 CI builds are unsigned until a Developer ID is added to the release
 workflow: right-click → Open once, or build from source (Xcode signs it

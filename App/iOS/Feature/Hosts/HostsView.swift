@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Screen 1 — Macs. Saved profiles, Macs found via Bonjour, add/settings.
+/// Macs — saved profiles and Macs found via Bonjour. Uses standard list rows,
+/// navigation links, sheets, toolbars, swipe actions, and context menus.
 struct HostsView: View {
     @EnvironmentObject private var client: AgentClient
     @EnvironmentObject private var store: ProfileStore
@@ -13,22 +14,14 @@ struct HostsView: View {
     @State private var renameText = ""
 
     var body: some View {
-        List {
-            tagline
-            if store.profiles.isEmpty {
+        Group {
+            if store.profiles.isEmpty, bonjour.hosts.isEmpty {
                 onboarding
             } else {
-                savedSection
-            }
-            if !bonjour.hosts.isEmpty {
-                nearbySection
+                hostList
             }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle(L.appName)
-        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .navigationTitle(L.macs)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button { sheet = .add } label: { Image(systemName: "plus") }
@@ -38,11 +31,12 @@ struct HostsView: View {
             }
         }
         .sheet(item: $sheet, content: sheetContent)
-        .confirmationDialog(L.forgetTitle(pendingForget?.name ?? ""), isPresented: forgetBinding, titleVisibility: .visible) {
+        .confirmationDialog(L.forgetTitle(pendingForget?.name ?? ""), isPresented: forgetBinding,
+                            titleVisibility: .visible) {
             Button(L.forget, role: .destructive) {
-                if let p = pendingForget {
-                    if client.profileID == p.id { client.disconnect() }
-                    store.remove(p.id)
+                if let profile = pendingForget {
+                    if client.profileID == profile.id { client.disconnect() }
+                    store.remove(profile.id)
                 }
                 pendingForget = nil
             }
@@ -53,9 +47,9 @@ struct HostsView: View {
         .alert(L.rename, isPresented: renameBinding, presenting: renaming) { profile in
             TextField(profile.name, text: $renameText)
             Button(L.save) {
-                var p = profile
+                var profile = profile
                 let name = renameText.trimmingCharacters(in: .whitespaces)
-                if !name.isEmpty { p.name = name; store.upsert(p) }
+                if !name.isEmpty { profile.name = name; store.upsert(profile) }
                 renaming = nil
             }
             Button(L.cancel, role: .cancel) { renaming = nil }
@@ -68,99 +62,103 @@ struct HostsView: View {
 
     // MARK: - Sections
 
-    private var tagline: some View {
-        Text(L.tagline)
-            .font(Theme.mono(10))
-            .tracking(1.2)
-            .foregroundStyle(Theme.muted)
-            .listRowBackground(Theme.bg)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 16, trailing: 20))
+    private var hostList: some View {
+        List {
+            if !store.profiles.isEmpty {
+                savedSection
+            }
+            if !bonjour.hosts.isEmpty {
+                nearbySection
+            }
+        }
     }
 
     private var savedSection: some View {
-        Section {
+        Section(L.savedMacs) {
             ForEach(store.profiles) { profile in
-                Button { open(profile) } label: { profileRow(profile) }
-                    .buttonStyle(.plain)
-                    .listRowBackground(Theme.surface)
-                    .listRowSeparatorTint(Theme.surface2)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) { pendingForget = profile } label: {
-                            Label(L.delete, systemImage: "trash")
+                NavigationLink(value: Route.sessions(profile.id)) {
+                    profileRow(profile)
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) { pendingForget = profile } label: {
+                        Label(L.delete, systemImage: "trash")
+                    }
+                }
+                .contextMenu {
+                    Button { renameText = profile.name; renaming = profile } label: {
+                        Label(L.rename, systemImage: "pencil")
+                    }
+                    Button { sheet = .edit(profile.id) } label: {
+                        Label(L.edit, systemImage: "slider.horizontal.3")
+                    }
+                    if client.profileID == profile.id, client.status != .idle {
+                        Button { client.disconnect() } label: {
+                            Label(L.disconnect, systemImage: "xmark.circle")
                         }
                     }
-                    .contextMenu {
-                        Button { renameText = profile.name; renaming = profile } label: {
-                            Label(L.rename, systemImage: "pencil")
-                        }
-                        Button { sheet = .edit(profile.id) } label: {
-                            Label(L.edit, systemImage: "slider.horizontal.3")
-                        }
-                        if client.profileID == profile.id, client.status != .idle {
-                            Button { client.disconnect() } label: {
-                                Label(L.disconnect, systemImage: "xmark.circle")
-                            }
-                        }
-                        Button(role: .destructive) { pendingForget = profile } label: {
-                            Label(L.forget, systemImage: "trash")
-                        }
+                    Button(role: .destructive) { pendingForget = profile } label: {
+                        Label(L.forget, systemImage: "trash")
                     }
+                }
             }
-        } header: {
-            SectionLabel(L.savedMacs)
         }
     }
 
     private var nearbySection: some View {
         Section {
             ForEach(bonjour.hosts) { host in
-                nearbyRow(host)
-                    .listRowBackground(Theme.surface)
-                    .listRowSeparatorTint(Theme.surface2)
+                if let saved = store.profiles.first(where: { $0.matches(host: host.host, port: host.port) }) {
+                    NavigationLink(value: Route.sessions(saved.id)) {
+                        nearbyLabel(host)
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        nearbyLabel(host)
+                        Spacer()
+                        Button(L.pair, systemImage: "qrcode.viewfinder") {
+                            sheet = .pairNearby(host)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                }
             }
         } header: {
-            SectionLabel(L.nearbyMacs)
+            Text(L.nearbyMacs)
         } footer: {
             Text(L.tailscaleNote)
-                .font(Theme.mono(10))
-                .foregroundStyle(Theme.muted)
         }
-        .listSectionSeparator(.hidden)
     }
 
+    @ViewBuilder
     private var onboarding: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(L.onboardingTitle)
-                .font(Theme.mono(15, .semibold))
-                .foregroundStyle(Theme.paper)
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(L.onboardingSteps, id: \.self) { step in
-                    Text(step)
-                        .font(.system(size: 14))
-                        .foregroundStyle(Theme.paper.opacity(0.85))
-                }
+        if #available(iOS 17.0, *) {
+            ContentUnavailableView {
+                Label(L.onboardingTitle, systemImage: "desktopcomputer")
+            } description: {
+                Text(L.onboardingDescription)
+            } actions: {
+                Button(L.scanQR, systemImage: "qrcode.viewfinder") { sheet = .add }
+                    .buttonStyle(.borderedProminent)
             }
-            Button { sheet = .add } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "qrcode.viewfinder")
-                    Text(L.scanQR).font(Theme.mono(13, .semibold)).tracking(1)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Theme.vermilion)
-                .foregroundStyle(Theme.paper)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+        } else {
+            VStack(spacing: 12) {
+                Image(systemName: "desktopcomputer")
+                    .font(.largeTitle)
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
+                Text(L.onboardingTitle)
+                    .font(.headline)
+                Text(L.onboardingDescription)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button(L.scanQR, systemImage: "qrcode.viewfinder") { sheet = .add }
+                    .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.plain)
-            .padding(.top, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(24)
         }
-        .padding(16)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
-        .listRowBackground(Theme.bg)
-        .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
     }
 
     // MARK: - Rows
@@ -170,59 +168,37 @@ struct HostsView: View {
         let error = client.profileID == profile.id ? client.lastError : nil
         return HStack(spacing: 12) {
             if current {
-                StatusDot(color: Theme.statusColor(client.status, error: error != nil))
+                StatusIndicator(state: client.status, error: error != nil)
             }
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(profile.name)
-                    .font(Theme.mono(17, .semibold))
-                    .foregroundStyle(Theme.paper)
+                    .font(.headline)
                     .lineLimit(1)
                 Text("\(profile.address) · \(profile.lastConnected.map(L.ago) ?? L.neverConnected)")
-                    .font(Theme.mono(11))
-                    .foregroundStyle(Theme.muted)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                 if let error, client.status != .connected {
                     Text(error)
-                        .font(Theme.mono(11))
-                        .foregroundStyle(Theme.vermilion)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
                         .lineLimit(2)
                 }
             }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Theme.muted.opacity(0.6))
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 2)
     }
 
-    private func nearbyRow(_ host: DiscoveredHost) -> some View {
-        let saved = store.profiles.first { $0.matches(host: host.host, port: host.port) }
-        return HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(host.name)
-                    .font(Theme.mono(15, .semibold))
-                    .foregroundStyle(Theme.paper)
-                    .lineLimit(1)
-                Text(host.address)
-                    .font(Theme.mono(11))
-                    .foregroundStyle(Theme.muted)
-            }
-            Spacer()
-            Button {
-                if let saved { open(saved) } else { sheet = .pairNearby(host) }
-            } label: {
-                Text(saved == nil ? L.pair : L.connect)
-                    .font(Theme.mono(11, .semibold))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(saved == nil ? Theme.vermilion : Theme.surface2)
-                    .foregroundStyle(Theme.paper)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
-            }
-            .buttonStyle(.plain)
+    private func nearbyLabel(_ host: DiscoveredHost) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(host.name)
+                .font(.headline)
+                .lineLimit(1)
+            Text(host.address)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 2)
     }
 
     // MARK: - Sheets & bindings

@@ -110,6 +110,8 @@ final class AgentConnection: @unchecked Sendable {
             onChange?(self)
         case .windowsChanged(let windows):
             if let session = attachedSession { send(.windows(sessionID: session.id, windows: windows)) }
+        case .panesChanged(let sessionID, let windowID, let panes):
+            send(.panes(sessionID: sessionID, windowID: windowID, panes: panes))
         case .reset(let bytes):
             outputBuffer.removeAll(keepingCapacity: true)
             send(.screen(mode: .reset, data: Data(bytes)))
@@ -267,6 +269,8 @@ final class AgentConnection: @unchecked Sendable {
             }
             guard attachedSession != nil else { return send(.error(code: .notAttached, message: "not attached")) }
             control.renameWindow(id: id, name: name.trimmingCharacters(in: .whitespaces))
+        case .paneSelect(let id):
+            handlePaneSelect(id: id)
         case .input(let data):
             control.sendInput([UInt8](data))
         case .paste(let text):
@@ -284,6 +288,18 @@ final class AgentConnection: @unchecked Sendable {
         case .ping(let sentAt):
             send(.pong(sentAt: sentAt))
         }
+    }
+
+    private func handlePaneSelect(id: String) {
+        guard TmuxNames.isPaneID(id) else {
+            send(.error(code: .badFrame, message: "invalid pane id"))
+            return
+        }
+        guard attachedSession != nil else {
+            send(.error(code: .notAttached, message: "not attached"))
+            return
+        }
+        control.selectPane(id: id)
     }
 
     private func sessionsChanged() {

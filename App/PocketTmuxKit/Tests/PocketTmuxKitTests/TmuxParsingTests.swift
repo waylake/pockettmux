@@ -49,6 +49,18 @@ final class TmuxParsingTests: XCTestCase {
         ])
     }
 
+    func testPaneList() {
+        let panes = TmuxFormats.parsePanes(
+            "%3\t0\tshell\t1\t80\t24\t0\t0\n%4\t1\teditor\t0\t79\t24\t81\t0\ngarbage\n"
+        )
+        XCTAssertEqual(panes, [
+            PaneInfo(id: "%3", index: 0, title: "shell", active: true,
+                     width: 80, height: 24, left: 0, top: 0),
+            PaneInfo(id: "%4", index: 1, title: "editor", active: false,
+                     width: 79, height: 24, left: 81, top: 0)
+        ])
+    }
+
     func testPaneState() {
         let state = TmuxFormats.parsePaneState("%3\t1\t1\t1\t0\t1234\t80\t24\t5\t12\t@2\n")
         XCTAssertEqual(state, TmuxFormats.PaneState(paneID: "%3", windowID: "@2", alternateScreen: true,

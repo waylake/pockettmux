@@ -1,8 +1,7 @@
-/* PocketTmux design tokens
- * Brand-locked: these values are the app's own palette, lifted from
- * App/iOS/Design/Theme.swift (墨 sumi ink · 藍墨 aizumi · 和紙 washi paper ·
- * 朱 shu accent · 萌葱 moegi) and converted to OKLCH so the web surface and the
- * two apps stay the same product.
+/* PocketTmux marketing-site tokens
+ * This identity belongs to the public landing page, not the product apps.
+ * The iPhone and Mac apps deliberately use native Apple components and semantic
+ * system styling; see docs/UI_GUIDELINES.md.
  *
  * Axes — paper band: dark (L 15%) · display style: mono · accent hue: warm (32°)
  */
